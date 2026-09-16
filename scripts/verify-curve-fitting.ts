@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fitCosine, fitData, fitExponential, fitInverse, fitLinear, fitLogarithmic, fitPower, fitQuadratic, fitSine } from "../lib/curve-fitting";
 
 const closeTo = (actual: number | undefined, expected: number, label: string) => {
-  assert.notEqual(actual, undefined, `${label} should be defined`);
+  if (actual === undefined) assert.fail(`${label} should be defined`);
   assert.ok(Math.abs(actual - expected) < 1e-10, `${label}: expected ${expected}, received ${actual}`);
 };
 

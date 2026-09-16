@@ -7,7 +7,7 @@ import {
   isHsvMatch,
   makeColorSample,
   rgbToHsv,
-} from "../lib/color-tracking.ts";
+} from "../lib/color-tracking";
 
 const red = rgbToHsv({ r: 255, g: 0, b: 0 });
 assert.equal(Math.round(red.h), 0);
