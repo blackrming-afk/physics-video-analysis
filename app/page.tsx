@@ -32,6 +32,7 @@ import {
   YAxis,
 } from "recharts";
 import { fitData, type FitModel, type FitResult } from "@/lib/curve-fitting";
+import { analysisTimeFromFrame, firstTrackedFrame } from "@/lib/analysis-time";
 import { FloatingFitResultPanel } from "@/components/FloatingFitResultPanel";
 import { StepNavigation, type WorkflowStep } from "@/components/StepNavigation";
 import {
@@ -248,6 +249,7 @@ export default function Home() {
   const [trackingReticleRadius, setTrackingReticleRadius] = useState(18);
   const [crosshairCenter, setCrosshairCenter] = useState<PixelPoint | null>(null);
   const [isDraggingCrosshair, setIsDraggingCrosshair] = useState(false);
+  const [advanceAfterManualRecord, setAdvanceAfterManualRecord] = useState(true);
   const [showTrackingTrail, setShowTrackingTrail] = useState(true);
   const [showTrajectoryLines, setShowTrajectoryLines] = useState(false);
   const [showSearchArea, setShowSearchArea] = useState(true);
@@ -281,6 +283,7 @@ export default function Home() {
     ? crosshairCenter ?? { pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) }
     : null;
   const sortedPoints = [...trackingPoints].sort((a, b) => a.frame - b.frame);
+  const firstAnalysisFrame = firstTrackedFrame(sortedPoints.map((point) => point.frame));
   const maximumTrajectoryFrameGap = Math.max(3, Math.round(activeFps * 0.2));
   const hasPhysicalCoordinates = Boolean(scaleCalibration && origin);
   const missingSetup = [!scaleCalibration && "比例尺", !origin && "原點"].filter(Boolean).join("、");
@@ -715,7 +718,26 @@ export default function Home() {
     setIsDraggingAxis(false);
   };
 
+  const advanceAfterManualTrackingRecord = () => {
+    if (!advanceAfterManualRecord) return;
+
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration)) return;
+
+    video.pause();
+    const lastTrackableFrame = Math.max(0, Math.ceil(video.duration * activeFps) - 1);
+    if (currentFrame >= lastTrackableFrame) {
+      setError("已到影片最後一格");
+      return;
+    }
+
+    setError("");
+    seekToFrame(currentFrame + 1);
+  };
+
   const recordManualTrackingPoint = (point: PixelPoint) => {
+    if (trackingMethod !== "manual") return;
+
     const trackingPoint: TrackingPoint = {
       ...point,
       frame: currentFrame,
@@ -726,6 +748,7 @@ export default function Home() {
     setTrackingPoints((previous) => upsertTrackingPoint(previous, trackingPoint));
     setTrackingFailures((previous) => previous.filter((failure) => failure.frame !== currentFrame));
     if (autoTrackingStatus === "failed") setAutoTrackingStatus("stopped");
+    advanceAfterManualTrackingRecord();
   };
 
   const handleOverlayPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -995,7 +1018,11 @@ export default function Home() {
   };
 
   const rawAnalysisPoints: AnalysisPoint[] = hasPhysicalCoordinates && scaleCalibration && origin
-    ? sortedPoints.map((point) => ({ ...point, time: point.frame / activeFps, ...physicalCoordinate(point)! }))
+    ? sortedPoints.map((point) => ({
+      ...point,
+      time: analysisTimeFromFrame(point.frame, firstAnalysisFrame, activeFps),
+      ...physicalCoordinate(point)!,
+    }))
     : [];
 
   const positionPoints = rawAnalysisPoints.map((point, index, points) => {
@@ -1393,9 +1420,9 @@ export default function Home() {
             </section>}
 
             {workflowStep === "tracking" && <section className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-cyan-100">追蹤準星位置</p><p className="mt-1 font-mono text-xs text-slate-300">準星 X: {crosshairPreviewPoint?.pixelX ?? "—"} px　Y: {crosshairPreviewPoint?.pixelY ?? "—"} px</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={!canControl || !crosshairPreviewPoint || autoTrackingStatus === "running"} onClick={() => crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-cyan-300 px-3 text-xs font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={15} />記錄準星位置</button><button type="button" disabled={!canControl || !videoWidth || !videoHeight || autoTrackingStatus === "running"} onClick={() => setCrosshairCenter({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-9 items-center rounded-lg border border-cyan-300/40 px-3 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">置中</button></div></div>
+              <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-cyan-100">追蹤準星位置</p><p className="mt-1 font-mono text-xs text-slate-300">準星 X: {crosshairPreviewPoint?.pixelX ?? "—"} px　Y: {crosshairPreviewPoint?.pixelY ?? "—"} px</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-cyan-300 px-3 text-xs font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={15} />記錄準星位置</button><button type="button" disabled={!canControl || !videoWidth || !videoHeight || autoTrackingStatus === "running"} onClick={() => setCrosshairCenter({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-9 items-center rounded-lg border border-cyan-300/40 px-3 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">置中</button></div></div>
               <p className="mt-2 text-xs leading-5 text-slate-400">拖曳影片中的準星中心可微調手動對準與下一次自動追蹤起點。自動追蹤中拖曳會停止追蹤，但保留已建立資料。</p>
-              <div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrackingTrail} onChange={(event) => setShowTrackingTrail(event.target.checked)} className="h-4 w-4 accent-cyan-300" />顯示軌跡點</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrajectoryLines} disabled={!showTrackingTrail} onChange={(event) => setShowTrajectoryLines(event.target.checked)} className="h-4 w-4 accent-cyan-300 disabled:opacity-40" />連接軌跡</label></div>
+              <div className="mt-3 flex flex-wrap gap-2"><label className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-semibold ${trackingMethod === "manual" ? "cursor-pointer border-cyan-300/50 text-cyan-100" : "cursor-not-allowed border-slate-700 text-slate-500"}`}><input type="checkbox" checked={advanceAfterManualRecord} disabled={trackingMethod !== "manual"} onChange={(event) => setAdvanceAfterManualRecord(event.target.checked)} className="h-4 w-4 accent-cyan-300 disabled:opacity-40" />記錄後自動前進一格</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrackingTrail} onChange={(event) => setShowTrackingTrail(event.target.checked)} className="h-4 w-4 accent-cyan-300" />顯示軌跡點</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrajectoryLines} disabled={!showTrackingTrail} onChange={(event) => setShowTrajectoryLines(event.target.checked)} className="h-4 w-4 accent-cyan-300 disabled:opacity-40" />連接軌跡</label></div>
             </section>}
 
             {workflowStep === "tracking" && <section className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
