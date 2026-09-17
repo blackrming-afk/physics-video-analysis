@@ -18,7 +18,6 @@ import {
   Timer,
   TestTube2,
   Trash2,
-  Undo2,
 } from "lucide-react";
 import {
   CartesianGrid,
@@ -220,6 +219,7 @@ export default function Home() {
   const [workflowStep, setWorkflowStep] = useState<WorkflowStep>("video");
   const [mode, setMode] = useState<InteractionMode>("track");
   const [trackingPoints, setTrackingPoints] = useState<TrackingPoint[]>([]);
+  const [editingFrame, setEditingFrame] = useState<number | null>(null);
   const [contentBounds, setContentBounds] = useState<ContentBounds | null>(null);
   const [videoDimensions, setVideoDimensions] = useState<VideoDimensions | null>(null);
   const [scaleDraftA, setScaleDraftA] = useState<PixelPoint | null>(null);
@@ -376,6 +376,7 @@ export default function Home() {
     setAutoTrackingDiagnostics(null);
     setDebugMaskOverlay(null);
     setTrackingPoints([]);
+    setEditingFrame(null);
     setScaleDraftA(null);
     setScaleDraftB(null);
     setScaleLengthInput("");
@@ -436,6 +437,7 @@ export default function Home() {
     setAutoTrackingDiagnostics(null);
     setDebugMaskOverlay(null);
     setTrackingPoints(demoPoints);
+    setEditingFrame(null);
     setScaleDraftA(null);
     setScaleDraftB(null);
     setScaleLengthInput("");
@@ -468,6 +470,7 @@ export default function Home() {
     setIsDemoMode(false);
     setFileName("");
     setTrackingPoints([]);
+    setEditingFrame(null);
     setScaleCalibration(null);
     setOrigin(null);
     setAxisAngleDegrees(0);
@@ -600,6 +603,7 @@ export default function Home() {
     setAutoSearchPoint(null);
     setIsSelectingColor(false);
     setTrackingMethod(nextMethod);
+    setEditingFrame(null);
     setMode("track");
   };
 
@@ -742,7 +746,7 @@ export default function Home() {
   };
 
   const recordManualTrackingPoint = (point: PixelPoint) => {
-    if (trackingMethod !== "manual") return;
+    if (trackingMethod !== "manual" || editingFrame !== null) return;
 
     const trackingPoint: TrackingPoint = {
       ...point,
@@ -755,6 +759,55 @@ export default function Home() {
     setTrackingFailures((previous) => previous.filter((failure) => failure.frame !== currentFrame));
     if (autoTrackingStatus === "failed") setAutoTrackingStatus("stopped");
     advanceAfterManualTrackingRecord();
+  };
+
+  const beginEditingTrackingPoint = (point: TrackingPoint) => {
+    autoTrackingRunRef.current += 1;
+    videoRef.current?.pause();
+    setAutoTrackingStatus("stopped");
+    setAutoSearchPoint(null);
+    setIsSelectingColor(false);
+    setTrackingMethod("manual");
+    setMode("track");
+    setEditingFrame(point.frame);
+    setCrosshairCenter(clampCrosshairCenter(point));
+    setError("");
+    seekToFrame(point.frame);
+  };
+
+  const updateEditingTrackingPoint = () => {
+    if (editingFrame === null || !crosshairPreviewPoint) return;
+
+    const existingPoint = trackingPoints.find((point) => point.frame === editingFrame);
+    if (!existingPoint) {
+      setEditingFrame(null);
+      return;
+    }
+
+    const updatedPoint: TrackingPoint = {
+      ...existingPoint,
+      ...crosshairPreviewPoint,
+      trackingMethod: "manual",
+      trackingConfidence: 1,
+    };
+    setTrackingPoints((points) => upsertTrackingPoint(points, updatedPoint));
+    setTrackingFailures((failures) => failures.filter((failure) => failure.frame !== editingFrame));
+    setEditingFrame(null);
+    setError("");
+  };
+
+  const deleteTrackingPoint = (frame: number) => {
+    if (!window.confirm(`確定刪除 Frame ${frame} 的追蹤點嗎？`)) return;
+    setTrackingPoints((points) => points.filter((point) => point.frame !== frame));
+    setTrackingFailures((failures) => failures.filter((failure) => failure.frame !== frame));
+    if (editingFrame === frame) setEditingFrame(null);
+  };
+
+  const clearTrackingPoints = () => {
+    if (!window.confirm("確定清除全部追蹤點嗎？此動作無法復原。")) return;
+    setTrackingPoints([]);
+    setTrackingFailures([]);
+    setEditingFrame(null);
   };
 
   const handleOverlayPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -814,7 +867,9 @@ export default function Home() {
     }
 
     if (workflowStep !== "tracking") return;
-    recordManualTrackingPoint(point);
+    // Tapping the video aligns the crosshair only. Recording remains an explicit
+    // action so a touch gesture or scroll cannot accidentally add a data point.
+    setCrosshairCenter(clampCrosshairCenter(point));
   };
 
   const stopAutoTracking = () => {
@@ -1352,7 +1407,7 @@ export default function Home() {
           <aside className="flex min-w-0 flex-col gap-5">
             {workflowStep === "video" && <section className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-100"><FolderOpen size={18} className="text-cyan-300" />影片來源</div>
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-600 px-4 py-3 text-sm font-semibold text-cyan-200 transition hover:border-cyan-300/80 hover:bg-cyan-300/5"><FolderOpen size={17} />選擇 MP4 檔案<input className="sr-only" type="file" accept="video/mp4,.mp4" onChange={handleFileChange} /></label>
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-600 px-4 py-3 text-sm font-semibold text-cyan-200 transition hover:border-cyan-300/80 hover:bg-cyan-300/5"><FolderOpen size={17} />選擇本機影片<input className="sr-only" type="file" accept="video/*,.mp4,.mov" onChange={handleFileChange} /></label>
               <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={loadDemoData} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-fuchsia-300/45 px-3 text-xs font-semibold text-fuchsia-100 transition hover:bg-fuchsia-300/10"><TestTube2 size={15} />載入 Demo 資料</button>{isDemoMode && <button type="button" onClick={clearDemoData} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-300/45 px-3 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/10"><Trash2 size={15} />清除 Demo</button>}</div>
               <p className={`mt-3 break-all text-xs leading-5 ${isDemoMode ? "font-semibold text-fuchsia-200" : "text-slate-400"}`}>{fileName || "尚未載入影片"}</p>
             </section>}
@@ -1434,15 +1489,16 @@ export default function Home() {
             </section>}
 
             {workflowStep === "tracking" && <section className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-cyan-100">追蹤準星位置</p><p className="mt-1 font-mono text-xs text-slate-300">準星 X: {crosshairPreviewPoint?.pixelX ?? "—"} px　Y: {crosshairPreviewPoint?.pixelY ?? "—"} px</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-cyan-300 px-3 text-xs font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={15} />記錄準星位置</button><button type="button" disabled={!canControl || !videoWidth || !videoHeight || autoTrackingStatus === "running"} onClick={() => setCrosshairCenter({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-9 items-center rounded-lg border border-cyan-300/40 px-3 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">置中</button></div></div>
-              <p className="mt-2 text-xs leading-5 text-slate-400">拖曳影片中的準星中心可微調手動對準與下一次自動追蹤起點。自動追蹤中拖曳會停止追蹤，但保留已建立資料。</p>
+              <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-cyan-100">追蹤準星位置</p><p className="mt-1 font-mono text-xs text-slate-300">準星 X: {crosshairPreviewPoint?.pixelX ?? "—"} px　Y: {crosshairPreviewPoint?.pixelY ?? "—"} px</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => editingFrame !== null ? updateEditingTrackingPoint() : crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-cyan-300 px-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={16} />{editingFrame !== null ? "更新此點" : "記錄準星位置"}</button><button type="button" disabled={!canControl || !videoWidth || !videoHeight || autoTrackingStatus === "running"} onClick={() => setCrosshairCenter({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-11 items-center rounded-lg border border-cyan-300/40 px-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">置中</button>{editingFrame !== null && <button type="button" onClick={() => setEditingFrame(null)} className="inline-flex min-h-11 items-center rounded-lg border border-slate-600 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">取消修正</button>}</div></div>
+              {editingFrame !== null && <p className="mt-3 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-sm font-semibold text-amber-100" aria-live="polite">正在修正 Frame {editingFrame}</p>}
+              <p className="mt-2 text-xs leading-5 text-slate-400">點選影片只會移動準星；確認位置後再按「記錄準星位置」。自動追蹤中拖曳準星會停止追蹤，但保留已建立資料。</p>
               <div className="mt-3 flex flex-wrap gap-2"><label className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-semibold ${trackingMethod === "manual" ? "cursor-pointer border-cyan-300/50 text-cyan-100" : "cursor-not-allowed border-slate-700 text-slate-500"}`}><input type="checkbox" checked={advanceAfterManualRecord} disabled={trackingMethod !== "manual"} onChange={(event) => setAdvanceAfterManualRecord(event.target.checked)} className="h-4 w-4 accent-cyan-300 disabled:opacity-40" />記錄後自動前進一格</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrackingTrail} onChange={(event) => setShowTrackingTrail(event.target.checked)} className="h-4 w-4 accent-cyan-300" />顯示軌跡點</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrajectoryLines} disabled={!showTrackingTrail} onChange={(event) => setShowTrajectoryLines(event.target.checked)} className="h-4 w-4 accent-cyan-300 disabled:opacity-40" />連接軌跡</label></div>
             </section>}
 
             {workflowStep === "tracking" && <section className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
               <div className="mb-4 flex items-center justify-between gap-3"><div className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Crosshair size={18} className="text-cyan-300" />追蹤資料</div><span className="rounded-md bg-slate-800 px-2 py-1 text-xs font-mono text-slate-300">{trackingPoints.length} 點</span></div>
-              <div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={() => setTrackingPoints((points) => points.slice(0, -1))} disabled={trackingPoints.length === 0} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-600 px-3 text-xs font-semibold text-slate-200 transition hover:border-slate-400 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"><Undo2 size={15} />復原上一點</button><button type="button" onClick={() => setTrackingPoints([])} disabled={trackingPoints.length === 0} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-400/40 px-3 text-xs font-semibold text-rose-200 transition hover:bg-rose-400/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 size={15} />清除全部點位</button></div>
-              {sortedPoints.length > 0 ? <div className="max-h-72 overflow-auto rounded-lg border border-slate-700"><table className="w-full min-w-[440px] border-collapse text-left text-xs"><thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-2.5 py-2 font-semibold">Frame</th><th className="px-2.5 py-2 font-semibold">Time (s)</th><th className="px-2.5 py-2 font-semibold">Pixel X</th><th className="px-2.5 py-2 font-semibold">Pixel Y</th><th className="px-2.5 py-2 font-semibold">Confidence</th><th className="w-9 px-1 py-2"><span className="sr-only">刪除</span></th></tr></thead><tbody>{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-2.5 py-2 font-mono text-slate-100">{point.frame}</td><td className="px-2.5 py-2 font-mono text-slate-300">{(point.frame / activeFps).toFixed(3)}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelX}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelY}</td><td className={`px-2.5 py-2 font-mono font-semibold ${isLowConfidence ? "text-amber-200" : point.trackingMethod === "auto" ? "text-emerald-200" : "text-slate-400"}`}>{point.trackingMethod === "auto" ? `${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "—"}</td><td className="px-1 py-1"><button type="button" onClick={() => setTrackingPoints((points) => points.filter((item) => item.frame !== point.frame))} aria-label={`刪除 frame ${point.frame} 的點位`} className="rounded-md p-1.5 text-slate-400 transition hover:bg-rose-400/10 hover:text-rose-200"><Trash2 size={15} /></button></td></tr>; })}</tbody></table></div> : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-center text-xs leading-5 text-slate-400">在手動追蹤模式暫停影片後，點選物體位置；或選取顏色後使用自動追蹤。</p>}
+              <div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={clearTrackingPoints} disabled={trackingPoints.length === 0} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rose-400/40 px-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-400/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 size={16} />清除全部點位</button></div>
+              {sortedPoints.length > 0 ? <><div className="space-y-3 sm:hidden">{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <article key={point.frame} className={`rounded-xl border p-3 ${point.frame === currentFrame ? "border-cyan-300/50 bg-cyan-300/10" : "border-slate-700 bg-slate-950/25"}`}><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-base font-bold text-white">Frame {point.frame}</p><p className="mt-1 font-mono text-xs text-slate-400">Time {(point.frame / activeFps).toFixed(3)} s</p></div><span className={`rounded-md px-2 py-1 font-mono text-xs font-semibold ${isLowConfidence ? "bg-amber-300/15 text-amber-100" : point.trackingMethod === "auto" ? "bg-emerald-300/15 text-emerald-100" : "bg-slate-800 text-slate-300"}`}>{point.trackingMethod === "auto" ? `信心 ${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "手動"}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt className="text-xs text-slate-500">Pixel X</dt><dd className="font-mono text-slate-100">{point.pixelX}</dd></div><div><dt className="text-xs text-slate-500">Pixel Y</dt><dd className="font-mono text-slate-100">{point.pixelY}</dd></div></dl><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></div></article>; })}</div><div className="hidden max-h-72 overflow-auto rounded-lg border border-slate-700 sm:block"><table className="w-full min-w-[660px] border-collapse text-left text-xs"><thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-2.5 py-2 font-semibold">Frame</th><th className="px-2.5 py-2 font-semibold">Time (s)</th><th className="px-2.5 py-2 font-semibold">Pixel X</th><th className="px-2.5 py-2 font-semibold">Pixel Y</th><th className="px-2.5 py-2 font-semibold">Confidence</th><th className="px-2.5 py-2 font-semibold">修正</th><th className="px-2.5 py-2 font-semibold">刪除</th></tr></thead><tbody>{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-2.5 py-2 font-mono text-slate-100">{point.frame}</td><td className="px-2.5 py-2 font-mono text-slate-300">{(point.frame / activeFps).toFixed(3)}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelX}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelY}</td><td className={`px-2.5 py-2 font-mono font-semibold ${isLowConfidence ? "text-amber-200" : point.trackingMethod === "auto" ? "text-emerald-200" : "text-slate-400"}`}>{point.trackingMethod === "auto" ? `${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "—"}</td><td className="px-2.5 py-2"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 whitespace-nowrap rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button></td><td className="px-2.5 py-2"><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 whitespace-nowrap rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></td></tr>; })}</tbody></table></div></> : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-center text-xs leading-5 text-slate-400">暫停影片後，點選物體以移動準星，再按「記錄準星位置」。</p>}
             </section>}
             <div className="mt-auto flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-[#0c1b2c] p-4">
               <button type="button" disabled={workflowIndex === 0} onClick={() => goToWorkflowStep(workflowOrder[workflowIndex - 1])} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-600 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft size={17} />上一步</button>
@@ -1455,7 +1511,7 @@ export default function Home() {
             <div className="flex flex-col gap-4 border-b border-slate-700/80 pb-5 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <div className="flex items-center gap-2 text-lg font-semibold text-white"><MoveRight size={20} className="text-emerald-300" />運動分析</div>
-                <p className="mt-1 text-sm text-slate-400">時間由目前 FPS 設定計算：t = frame / fps。所有差分都採用實際影格間的時間差。</p>
+                <p className="mt-1 text-sm text-slate-400">分析時間以最早追蹤點為 t = 0；所有差分都採用實際影格間的時間差。</p>
               </div>
               <button type="button" onClick={exportCsv} disabled={!hasPhysicalCoordinates || analysisPoints.length === 0} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-300/40 px-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-40"><Download size={17} />匯出 CSV</button>
             </div>
