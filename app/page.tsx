@@ -339,8 +339,14 @@ export default function Home() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.type !== "video/mp4" && !file.name.toLowerCase().endsWith(".mp4")) {
-      setError("請選擇 MP4 影片檔。");
+    // iOS may report video/quicktime, another video MIME type, or no MIME type
+    // at all for files selected from Photos, Files, or iCloud Drive. Accept the
+    // file here and let the browser's video element determine codec support.
+    const selectedFileName = file.name.toLowerCase();
+    const supportedByExtension = selectedFileName.endsWith(".mp4") || selectedFileName.endsWith(".mov");
+    const supportedByMime = file.type.startsWith("video/") || file.type === "video/mp4" || file.type === "video/quicktime";
+    if (!supportedByExtension && !supportedByMime) {
+      setError("請選擇影片檔。");
       event.target.value = "";
       return;
     }
@@ -1217,6 +1223,8 @@ export default function Home() {
                     ref={videoRef}
                     src={videoUrl}
                     className="h-full w-full object-contain"
+                    playsInline
+                    preload="metadata"
                     onLoadedMetadata={(event) => {
                       setDuration(event.currentTarget.duration);
                       setCurrentTime(event.currentTarget.currentTime);
@@ -1231,6 +1239,12 @@ export default function Home() {
                     }}
                     onSeeking={() => setIsSeeking(true)}
                     onSeeked={(event) => syncTimeFromVideo(event.currentTarget)}
+                    onCanPlay={() => setError((currentError) => currentError === "此影片格式或編碼目前無法由瀏覽器解碼，建議使用 MP4（H.264）。" ? "" : currentError)}
+                    onError={() => {
+                      setIsPlaying(false);
+                      setIsSeeking(false);
+                      setError("此影片格式或編碼目前無法由瀏覽器解碼，建議使用 MP4（H.264）。");
+                    }}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
                     onEnded={() => setIsPlaying(false)}
@@ -1298,9 +1312,9 @@ export default function Home() {
               ) : (
                 <label className="flex aspect-video cursor-pointer flex-col items-center justify-center gap-4 bg-[radial-gradient(circle_at_50%_40%,#133252_0%,#0c1b2c_43%,#081521_100%)] p-6 text-center transition hover:bg-[#10243a]">
                   <span className="flex h-16 w-16 items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-300/10 text-cyan-200"><FileVideo size={30} strokeWidth={1.6} /></span>
-                  <span><span className="block text-lg font-medium text-slate-100">選擇一支 MP4 影片</span><span className="mt-1.5 block text-sm text-slate-400">開始逐格檢視運動與物理現象</span></span>
+                  <span><span className="block text-lg font-medium text-slate-100">選擇一支影片</span><span className="mt-1.5 block text-sm text-slate-400">支援 MP4、MOV 與瀏覽器可播放的影片</span></span>
                   <span className="rounded-lg bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950">載入本機影片</span>
-                  <input className="sr-only" type="file" accept="video/mp4,.mp4" onChange={handleFileChange} />
+                  <input className="sr-only" type="file" accept="video/*,.mp4,.mov" onChange={handleFileChange} />
                 </label>
               )}
             </div>
