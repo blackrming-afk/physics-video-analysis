@@ -106,6 +106,8 @@ type ScaleCalibration = {
   metersPerPixel: number;
 };
 
+type ScaleEndpoint = "A" | "B";
+
 type AnalysisMode = "raw" | "smooth";
 
 type AnalysisPoint = TrackingPoint & {
@@ -200,6 +202,7 @@ export default function Home() {
   const overlayRef = useRef<HTMLDivElement>(null);
   const originDragPointerRef = useRef<number | null>(null);
   const axisDragPointerRef = useRef<number | null>(null);
+  const scaleDragPointerRef = useRef<{ pointerId: number; endpoint: ScaleEndpoint } | null>(null);
   const crosshairDragPointerRef = useRef<number | null>(null);
   const seekTokenRef = useRef(0);
   const pendingSeekRef = useRef<{ token: number; targetTime: number } | null>(null);
@@ -230,6 +233,7 @@ export default function Home() {
   const [axisAngleDegrees, setAxisAngleDegrees] = useState(0);
   const [isDraggingOrigin, setIsDraggingOrigin] = useState(false);
   const [isDraggingAxis, setIsDraggingAxis] = useState(false);
+  const [draggingScaleEndpoint, setDraggingScaleEndpoint] = useState<ScaleEndpoint | null>(null);
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("raw");
   const [chartMetric, setChartMetric] = useState<ChartMetric>("x");
   const [equalAxisScale, setEqualAxisScale] = useState(false);
@@ -597,6 +601,14 @@ export default function Home() {
     setMode(nextMode);
   };
 
+  const startOriginSetup = () => {
+    if (!videoWidth || !videoHeight) return;
+    setOrigin({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) });
+    setIsSelectingColor(false);
+    setMode("track");
+    setError("");
+  };
+
   const setTrackingWorkflow = (nextMethod: TrackingMethod) => {
     autoTrackingRunRef.current += 1;
     setAutoTrackingStatus("idle");
@@ -692,6 +704,59 @@ export default function Home() {
     originDragPointerRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     setIsDraggingOrigin(false);
+  };
+
+  const updateScaleEndpointFromPointer = (endpoint: ScaleEndpoint, clientX: number, clientY: number) => {
+    const point = getPixelPointFromClient(clientX, clientY);
+    if (!point) return;
+
+    if (scaleDraftA) {
+      if (endpoint === "A") setScaleDraftA(point);
+      else if (scaleDraftB) setScaleDraftB(point);
+      return;
+    }
+
+    if (!scaleCalibration) return;
+    const pointA = endpoint === "A" ? point : scaleCalibration.pointA;
+    const pointB = endpoint === "B" ? point : scaleCalibration.pointB;
+    const pixelDistance = Math.hypot(pointB.pixelX - pointA.pixelX, pointB.pixelY - pointA.pixelY);
+    if (pixelDistance <= 0) return;
+    setScaleCalibration({
+      ...scaleCalibration,
+      pointA,
+      pointB,
+      pixelDistance,
+      metersPerPixel: scaleCalibration.realLengthM / pixelDistance,
+    });
+  };
+
+  const beginScaleEndpointDrag = (endpoint: ScaleEndpoint, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (isPlaying) return;
+    event.preventDefault();
+    event.stopPropagation();
+    scaleDragPointerRef.current = { pointerId: event.pointerId, endpoint };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateScaleEndpointFromPointer(endpoint, event.clientX, event.clientY);
+    setDraggingScaleEndpoint(endpoint);
+  };
+
+  const moveScaleEndpointDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const activeDrag = scaleDragPointerRef.current;
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    updateScaleEndpointFromPointer(activeDrag.endpoint, event.clientX, event.clientY);
+  };
+
+  const endScaleEndpointDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const activeDrag = scaleDragPointerRef.current;
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    updateScaleEndpointFromPointer(activeDrag.endpoint, event.clientX, event.clientY);
+    scaleDragPointerRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setDraggingScaleEndpoint(null);
   };
 
   const updateAxisAngleFromPointer = (clientX: number, clientY: number) => {
@@ -1350,6 +1415,7 @@ export default function Home() {
                         </g>}
                       </svg>
                       {crosshairPreviewPoint && <button type="button" aria-label="拖曳以移動準星中心" title="拖曳準星中心" onPointerDown={beginCrosshairDrag} onPointerMove={moveCrosshairDrag} onPointerUp={endCrosshairDrag} onPointerCancel={endCrosshairDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent transition ${isDraggingCrosshair ? "cursor-grabbing border-cyan-100/80 bg-cyan-300/15" : "cursor-grab hover:border-cyan-100/65 hover:bg-cyan-300/10"}`} style={{ left: `${(crosshairPreviewPoint.pixelX / videoWidth) * 100}%`, top: `${(crosshairPreviewPoint.pixelY / videoHeight) * 100}%` }}><span className="sr-only">準星中心 X {crosshairPreviewPoint.pixelX}，Y {crosshairPreviewPoint.pixelY}</span></button>}
+                      {workflowStep === "calibration" && scaleLine && !isSelectingColor && autoTrackingStatus !== "running" && <><button type="button" aria-label="拖曳以移動比例尺 A 點" title="拖曳 A 點" onPointerDown={(event) => beginScaleEndpointDrag("A", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-fuchsia-100 bg-slate-950/85 text-sm font-black text-fuchsia-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${draggingScaleEndpoint === "A" ? "cursor-grabbing scale-110 bg-fuchsia-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-fuchsia-300 hover:text-slate-950"}`} style={{ left: `${(scaleLine.pointA.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointA.pixelY / videoHeight) * 100}%` }}>A</button>{scaleLine.pointB && <button type="button" aria-label="拖曳以移動比例尺 B 點" title="拖曳 B 點" onPointerDown={(event) => beginScaleEndpointDrag("B", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-fuchsia-100 bg-slate-950/85 text-sm font-black text-fuchsia-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${draggingScaleEndpoint === "B" ? "cursor-grabbing scale-110 bg-fuchsia-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-fuchsia-300 hover:text-slate-950"}`} style={{ left: `${(scaleLine.pointB.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointB.pixelY / videoHeight) * 100}%` }}>B</button>}</>}
                       {workflowStep === "calibration" && origin && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以移動座標原點" title="拖曳 O 移動座標原點" onPointerDown={beginOriginDrag} onPointerMove={moveOriginDrag} onPointerUp={endOriginDrag} onPointerCancel={endOriginDrag} className={`absolute z-20 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-sm font-black text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${isDraggingOrigin ? "cursor-grabbing scale-110" : "cursor-grab hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(origin.pixelX / videoWidth) * 100}%`, top: `${(origin.pixelY / videoHeight) * 100}%` }}>O</button>}
                       {workflowStep === "calibration" && axisHandle && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以旋轉座標軸" title="拖曳旋轉座標軸" onPointerDown={beginAxisDrag} onPointerMove={moveAxisDrag} onPointerUp={endAxisDrag} onPointerCancel={endAxisDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${isDraggingAxis ? "cursor-grabbing scale-110 bg-amber-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}><RotateCcw size={19} strokeWidth={2.5} /><span className="sr-only">目前角度 {axisAngleDegrees} 度</span></button>}
                       {workflowStep === "calibration" && isDraggingAxis && axisHandle && <div className="pointer-events-none absolute z-30 -translate-x-1/2 translate-y-4 rounded-md border border-amber-100/50 bg-slate-950/90 px-2 py-1 font-mono text-xs font-bold text-amber-100 shadow-lg" style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}>θ = {axisAngleDegrees.toFixed(1)}°</div>}
@@ -1419,7 +1485,7 @@ export default function Home() {
                 <button type="button" disabled={!canControl || isDemoMode} onClick={() => setTrackingWorkflow("auto")} className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${trackingMethod === "auto" && mode === "track" ? "border-emerald-300 bg-emerald-300/15 text-emerald-100" : "border-slate-700 bg-slate-900/50 text-slate-300 hover:border-slate-500"}`}><Crosshair size={17} />自動追蹤</button>
               </div>
               {workflowStep === "tracking" && <div className="mt-2 grid grid-cols-2 gap-2">
-                {([ ["scale", "比例尺", Ruler], ["origin", "原點", MapPin] ] as const).map(([value, label, Icon]) => <button key={value} type="button" disabled={!canControl} onClick={() => setActiveMode(value)} className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${mode === value ? value === "scale" ? "border-fuchsia-300 bg-fuchsia-300/15 text-fuchsia-100" : "border-amber-300 bg-amber-300/15 text-amber-100" : "border-slate-700 bg-slate-900/50 text-slate-300 hover:border-slate-500"}`}><Icon size={16} />{label}</button>)}
+                {([ ["scale", "比例尺", Ruler], ["origin", "原點", MapPin] ] as const).map(([value, label, Icon]) => <button key={value} type="button" disabled={!canControl} onClick={() => value === "origin" ? startOriginSetup() : setActiveMode(value)} className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${mode === value || (value === "origin" && origin) ? value === "scale" ? "border-fuchsia-300 bg-fuchsia-300/15 text-fuchsia-100" : "border-amber-300 bg-amber-300/15 text-amber-100" : "border-slate-700 bg-slate-900/50 text-slate-300 hover:border-slate-500"}`}><Icon size={16} />{label}</button>)}
               </div>}
               <p className="mt-3 text-xs leading-5 text-slate-400">手動與自動追蹤只能擇一；比例尺與原點設定不會新增追蹤點。</p>
             </section>}
@@ -1476,10 +1542,10 @@ export default function Home() {
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <button type="button" disabled={!canControl} onClick={() => { setScaleCalibration(null); setActiveMode("scale"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-fuchsia-300/40 px-3 text-xs font-semibold text-fuchsia-100 transition hover:bg-fuchsia-300/10 disabled:cursor-not-allowed disabled:opacity-40"><Ruler size={15} />{scaleCalibration ? "重新設定比例尺" : "設定比例尺"}</button>
-                <button type="button" disabled={!canControl} onClick={() => setActiveMode("origin")} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300/40 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-40"><MapPin size={15} />{origin ? "重新設定原點" : "設定原點"}</button>
+                <button type="button" disabled={!canControl} onClick={startOriginSetup} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300/40 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-40"><MapPin size={15} />{origin ? "重新設定原點" : "設定原點"}</button>
               </div>
               {origin && <p className="mt-3 text-xs leading-5 text-amber-100">可直接拖曳影片上的 <span className="font-bold">O</span> 移動原點，或拖曳 x 軸上的 <span className="font-bold">旋轉控制點</span>；所有追蹤點、運動分析、圖表與擬合會即時重新換算。</p>}
-              {scaleDraftA && scaleDraftB && <div className="mt-4 rounded-xl border border-fuchsia-300/30 bg-fuchsia-300/5 p-3"><p className="text-xs leading-5 text-fuchsia-100">A、B 相距 <span className="font-mono font-bold">{formatPixelDistance(draftPixelDistance)} px</span>。請輸入實際長度：</p><div className="mt-3 flex gap-2"><div className="relative min-w-0 flex-1"><input aria-label="比例尺實際長度（公尺）" type="number" min="0.000001" step="any" inputMode="decimal" value={scaleLengthInput} onChange={(event) => setScaleLengthInput(event.target.value)} placeholder="例如 1.00" className="w-full rounded-lg border border-fuchsia-300/40 bg-slate-950 px-3 py-2 pr-8 text-sm font-semibold text-white outline-none focus:border-fuchsia-200" /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-400">m</span></div><button type="button" onClick={applyScaleCalibration} className="rounded-lg bg-fuchsia-300 px-3 text-xs font-bold text-slate-950 hover:bg-fuchsia-200">套用</button></div></div>}
+              {scaleDraftA && scaleDraftB && <div className="mt-4 rounded-xl border border-fuchsia-300/30 bg-fuchsia-300/5 p-3"><p className="text-xs leading-5 text-fuchsia-100">直接拖曳影片上的 A、B 調整線段。A、B 相距 <span className="font-mono font-bold">{formatPixelDistance(draftPixelDistance)} px</span>，再輸入實際長度：</p><div className="mt-3 flex gap-2"><div className="relative min-w-0 flex-1"><input aria-label="比例尺實際長度（公尺）" type="number" min="0.000001" step="any" inputMode="decimal" value={scaleLengthInput} onChange={(event) => setScaleLengthInput(event.target.value)} placeholder="例如 1.00" className="w-full rounded-lg border border-fuchsia-300/40 bg-slate-950 px-3 py-2 pr-8 text-sm font-semibold text-white outline-none focus:border-fuchsia-200" /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-400">m</span></div><button type="button" onClick={applyScaleCalibration} className="rounded-lg bg-fuchsia-300 px-3 text-xs font-bold text-slate-950 hover:bg-fuchsia-200">套用</button></div></div>}
             </section>}
 
             {workflowStep === "video" && <section className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
