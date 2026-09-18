@@ -222,7 +222,10 @@ export default function Home() {
   const [workflowStep, setWorkflowStep] = useState<WorkflowStep>("video");
   const [mode, setMode] = useState<InteractionMode>("track");
   const [trackingPoints, setTrackingPoints] = useState<TrackingPoint[]>([]);
+  const [selectedTrackingFrame, setSelectedTrackingFrame] = useState<number | null>(null);
   const [editingFrame, setEditingFrame] = useState<number | null>(null);
+  const [pendingDeleteFrame, setPendingDeleteFrame] = useState<number | null>(null);
+  const [isConfirmingClearTracking, setIsConfirmingClearTracking] = useState(false);
   const [contentBounds, setContentBounds] = useState<ContentBounds | null>(null);
   const [videoDimensions, setVideoDimensions] = useState<VideoDimensions | null>(null);
   const [scaleDraftA, setScaleDraftA] = useState<PixelPoint | null>(null);
@@ -380,7 +383,10 @@ export default function Home() {
     setAutoTrackingDiagnostics(null);
     setDebugMaskOverlay(null);
     setTrackingPoints([]);
+    setSelectedTrackingFrame(null);
     setEditingFrame(null);
+    setPendingDeleteFrame(null);
+    setIsConfirmingClearTracking(false);
     setScaleDraftA(null);
     setScaleDraftB(null);
     setScaleLengthInput("");
@@ -441,7 +447,10 @@ export default function Home() {
     setAutoTrackingDiagnostics(null);
     setDebugMaskOverlay(null);
     setTrackingPoints(demoPoints);
+    setSelectedTrackingFrame(null);
     setEditingFrame(null);
+    setPendingDeleteFrame(null);
+    setIsConfirmingClearTracking(false);
     setScaleDraftA(null);
     setScaleDraftB(null);
     setScaleLengthInput("");
@@ -474,7 +483,10 @@ export default function Home() {
     setIsDemoMode(false);
     setFileName("");
     setTrackingPoints([]);
+    setSelectedTrackingFrame(null);
     setEditingFrame(null);
+    setPendingDeleteFrame(null);
+    setIsConfirmingClearTracking(false);
     setScaleCalibration(null);
     setOrigin(null);
     setAxisAngleDegrees(0);
@@ -834,6 +846,8 @@ export default function Home() {
     setIsSelectingColor(false);
     setTrackingMethod("manual");
     setMode("track");
+    setSelectedTrackingFrame(point.frame);
+    setPendingDeleteFrame(null);
     setEditingFrame(point.frame);
     setCrosshairCenter(clampCrosshairCenter(point));
     setError("");
@@ -858,21 +872,42 @@ export default function Home() {
     setTrackingPoints((points) => upsertTrackingPoint(points, updatedPoint));
     setTrackingFailures((failures) => failures.filter((failure) => failure.frame !== editingFrame));
     setEditingFrame(null);
+    setSelectedTrackingFrame(null);
     setError("");
   };
 
-  const deleteTrackingPoint = (frame: number) => {
-    if (!window.confirm(`確定刪除 Frame ${frame} 的追蹤點嗎？`)) return;
+  const toggleTrackingPointSelection = (frame: number) => {
+    setSelectedTrackingFrame((selectedFrame) => selectedFrame === frame ? null : frame);
+    setPendingDeleteFrame(null);
+  };
+
+  const confirmDeleteTrackingPoint = () => {
+    if (pendingDeleteFrame === null) return;
+    const frame = pendingDeleteFrame;
     setTrackingPoints((points) => points.filter((point) => point.frame !== frame));
     setTrackingFailures((failures) => failures.filter((failure) => failure.frame !== frame));
     if (editingFrame === frame) setEditingFrame(null);
+    if (selectedTrackingFrame === frame) setSelectedTrackingFrame(null);
+    setPendingDeleteFrame(null);
+  };
+
+  const confirmClearTrackingPoints = () => {
+    setTrackingPoints([]);
+    setTrackingFailures([]);
+    setSelectedTrackingFrame(null);
+    setEditingFrame(null);
+    setPendingDeleteFrame(null);
+    setIsConfirmingClearTracking(false);
+  };
+
+  const deleteTrackingPoint = (frame: number) => {
+    setSelectedTrackingFrame(frame);
+    setPendingDeleteFrame(frame);
   };
 
   const clearTrackingPoints = () => {
-    if (!window.confirm("確定清除全部追蹤點嗎？此動作無法復原。")) return;
-    setTrackingPoints([]);
-    setTrackingFailures([]);
-    setEditingFrame(null);
+    setPendingDeleteFrame(null);
+    setIsConfirmingClearTracking(true);
   };
 
   const handleOverlayPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1383,7 +1418,12 @@ export default function Home() {
                         {origin && workflowStep === "calibration" && <>
                           <line x1={origin.pixelX - axisCosine * Math.hypot(videoWidth, videoHeight) * 2} y1={origin.pixelY + axisSine * Math.hypot(videoWidth, videoHeight) * 2} x2={origin.pixelX + axisCosine * Math.hypot(videoWidth, videoHeight) * 2} y2={origin.pixelY - axisSine * Math.hypot(videoWidth, videoHeight) * 2} stroke="#fbbf24" strokeWidth="3" strokeDasharray="10 7" markerEnd="url(#axis-arrow)" />
                           <line x1={origin.pixelX + axisSine * Math.hypot(videoWidth, videoHeight) * 2} y1={origin.pixelY + axisCosine * Math.hypot(videoWidth, videoHeight) * 2} x2={origin.pixelX - axisSine * Math.hypot(videoWidth, videoHeight) * 2} y2={origin.pixelY - axisCosine * Math.hypot(videoWidth, videoHeight) * 2} stroke="#fbbf24" strokeWidth="3" strokeDasharray="10 7" markerEnd="url(#axis-arrow)" />
-                          <circle cx={origin.pixelX} cy={origin.pixelY} r="13" fill="#0f172a" stroke="#fbbf24" strokeWidth="3" />
+                          <g fill="none" stroke="#fbbf24" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx={origin.pixelX} cy={origin.pixelY} r="12" strokeWidth="3" />
+                            <line x1={origin.pixelX - 17} y1={origin.pixelY} x2={origin.pixelX + 17} y2={origin.pixelY} strokeWidth="3" />
+                            <line x1={origin.pixelX} y1={origin.pixelY - 17} x2={origin.pixelX} y2={origin.pixelY + 17} strokeWidth="3" />
+                            <circle cx={origin.pixelX} cy={origin.pixelY} r="3" strokeWidth="2.5" />
+                          </g>
                           <text x={origin.pixelX + 18} y={origin.pixelY - 14} fill="#fef3c7" fontSize="30" fontWeight="700">O</text>
                           <text x={origin.pixelX + axisCosine * 54} y={origin.pixelY - axisSine * 54} fill="#fef3c7" fontSize="26" fontWeight="700">x</text>
                           <text x={origin.pixelX - axisSine * 54} y={origin.pixelY - axisCosine * 54} fill="#fef3c7" fontSize="26" fontWeight="700">y</text>
@@ -1391,9 +1431,14 @@ export default function Home() {
                         </>}
                         {scaleLine && workflowStep === "calibration" && <>
                           {scaleLine.pointB && <line x1={scaleLine.pointA.pixelX} y1={scaleLine.pointA.pixelY} x2={scaleLine.pointB.pixelX} y2={scaleLine.pointB.pixelY} stroke="#e879f9" strokeWidth="5" />}
-                          <circle cx={scaleLine.pointA.pixelX} cy={scaleLine.pointA.pixelY} r="11" fill="#fdf4ff" stroke="#e879f9" strokeWidth="4" />
+                          <g fill="none" stroke="#e879f9" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx={scaleLine.pointA.pixelX} cy={scaleLine.pointA.pixelY} r="11" strokeWidth="3.5" />
+                            <line x1={scaleLine.pointA.pixelX - 16} y1={scaleLine.pointA.pixelY} x2={scaleLine.pointA.pixelX + 16} y2={scaleLine.pointA.pixelY} strokeWidth="3" />
+                            <line x1={scaleLine.pointA.pixelX} y1={scaleLine.pointA.pixelY - 16} x2={scaleLine.pointA.pixelX} y2={scaleLine.pointA.pixelY + 16} strokeWidth="3" />
+                            <circle cx={scaleLine.pointA.pixelX} cy={scaleLine.pointA.pixelY} r="2.5" strokeWidth="2" />
+                          </g>
                           <text x={scaleLine.pointA.pixelX + 14} y={scaleLine.pointA.pixelY - 14} fill="#fdf4ff" fontSize="27" fontWeight="700">A</text>
-                          {scaleLine.pointB && <><circle cx={scaleLine.pointB.pixelX} cy={scaleLine.pointB.pixelY} r="11" fill="#fdf4ff" stroke="#e879f9" strokeWidth="4" /><text x={scaleLine.pointB.pixelX + 14} y={scaleLine.pointB.pixelY - 14} fill="#fdf4ff" fontSize="27" fontWeight="700">B</text></>}
+                          {scaleLine.pointB && <><g fill="none" stroke="#e879f9" strokeLinecap="round" strokeLinejoin="round"><circle cx={scaleLine.pointB.pixelX} cy={scaleLine.pointB.pixelY} r="11" strokeWidth="3.5" /><line x1={scaleLine.pointB.pixelX - 16} y1={scaleLine.pointB.pixelY} x2={scaleLine.pointB.pixelX + 16} y2={scaleLine.pointB.pixelY} strokeWidth="3" /><line x1={scaleLine.pointB.pixelX} y1={scaleLine.pointB.pixelY - 16} x2={scaleLine.pointB.pixelX} y2={scaleLine.pointB.pixelY + 16} strokeWidth="3" /><circle cx={scaleLine.pointB.pixelX} cy={scaleLine.pointB.pixelY} r="2.5" strokeWidth="2" /></g><text x={scaleLine.pointB.pixelX + 14} y={scaleLine.pointB.pixelY - 14} fill="#fdf4ff" fontSize="27" fontWeight="700">B</text></>}
                         </>}
                         {workflowStep === "tracking" && isDebugMode && showCandidateBlobs && autoTrackingDiagnostics?.candidates.map((blob, index) => <rect key={`${blob.minX}-${blob.minY}-${index}`} x={blob.minX} y={blob.minY} width={blob.maxX - blob.minX + 1} height={blob.maxY - blob.minY + 1} fill="none" stroke="#60a5fa" strokeWidth="2.5" strokeDasharray="5 4" />)}
                         {workflowStep === "tracking" && isDebugMode && autoTrackingDiagnostics?.selected && <rect x={autoTrackingDiagnostics.selected.minX} y={autoTrackingDiagnostics.selected.minY} width={autoTrackingDiagnostics.selected.maxX - autoTrackingDiagnostics.selected.minX + 1} height={autoTrackingDiagnostics.selected.maxY - autoTrackingDiagnostics.selected.minY + 1} fill="none" stroke="#fef08a" strokeWidth="5" />}
@@ -1415,8 +1460,8 @@ export default function Home() {
                         </g>}
                       </svg>
                       {crosshairPreviewPoint && <button type="button" aria-label="拖曳以移動準星中心" title="拖曳準星中心" onPointerDown={beginCrosshairDrag} onPointerMove={moveCrosshairDrag} onPointerUp={endCrosshairDrag} onPointerCancel={endCrosshairDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent transition ${isDraggingCrosshair ? "cursor-grabbing border-cyan-100/80 bg-cyan-300/15" : "cursor-grab hover:border-cyan-100/65 hover:bg-cyan-300/10"}`} style={{ left: `${(crosshairPreviewPoint.pixelX / videoWidth) * 100}%`, top: `${(crosshairPreviewPoint.pixelY / videoHeight) * 100}%` }}><span className="sr-only">準星中心 X {crosshairPreviewPoint.pixelX}，Y {crosshairPreviewPoint.pixelY}</span></button>}
-                      {workflowStep === "calibration" && scaleLine && !isSelectingColor && autoTrackingStatus !== "running" && <><button type="button" aria-label="拖曳以移動比例尺 A 點" title="拖曳 A 點" onPointerDown={(event) => beginScaleEndpointDrag("A", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-fuchsia-100 bg-slate-950/85 text-sm font-black text-fuchsia-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${draggingScaleEndpoint === "A" ? "cursor-grabbing scale-110 bg-fuchsia-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-fuchsia-300 hover:text-slate-950"}`} style={{ left: `${(scaleLine.pointA.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointA.pixelY / videoHeight) * 100}%` }}>A</button>{scaleLine.pointB && <button type="button" aria-label="拖曳以移動比例尺 B 點" title="拖曳 B 點" onPointerDown={(event) => beginScaleEndpointDrag("B", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-fuchsia-100 bg-slate-950/85 text-sm font-black text-fuchsia-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${draggingScaleEndpoint === "B" ? "cursor-grabbing scale-110 bg-fuchsia-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-fuchsia-300 hover:text-slate-950"}`} style={{ left: `${(scaleLine.pointB.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointB.pixelY / videoHeight) * 100}%` }}>B</button>}</>}
-                      {workflowStep === "calibration" && origin && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以移動座標原點" title="拖曳 O 移動座標原點" onPointerDown={beginOriginDrag} onPointerMove={moveOriginDrag} onPointerUp={endOriginDrag} onPointerCancel={endOriginDrag} className={`absolute z-20 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-sm font-black text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${isDraggingOrigin ? "cursor-grabbing scale-110" : "cursor-grab hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(origin.pixelX / videoWidth) * 100}%`, top: `${(origin.pixelY / videoHeight) * 100}%` }}>O</button>}
+                      {workflowStep === "calibration" && scaleLine && !isSelectingColor && autoTrackingStatus !== "running" && <><button type="button" aria-label="拖曳以移動比例尺 A 點" title="拖曳 A 點" onPointerDown={(event) => beginScaleEndpointDrag("A", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "A" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointA.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointA.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 A 點</span></button>{scaleLine.pointB && <button type="button" aria-label="拖曳以移動比例尺 B 點" title="拖曳 B 點" onPointerDown={(event) => beginScaleEndpointDrag("B", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "B" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointB.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointB.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 B 點</span></button>}</>}
+                      {workflowStep === "calibration" && origin && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以移動座標原點" title="拖曳 O 移動座標原點" onPointerDown={beginOriginDrag} onPointerMove={moveOriginDrag} onPointerUp={endOriginDrag} onPointerCancel={endOriginDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${isDraggingOrigin ? "cursor-grabbing scale-110 border-amber-100 bg-amber-300/20" : "cursor-grab hover:border-amber-100/65 hover:bg-amber-300/10"}`} style={{ left: `${(origin.pixelX / videoWidth) * 100}%`, top: `${(origin.pixelY / videoHeight) * 100}%` }}><span className="sr-only">座標原點 O</span></button>}
                       {workflowStep === "calibration" && axisHandle && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以旋轉座標軸" title="拖曳旋轉座標軸" onPointerDown={beginAxisDrag} onPointerMove={moveAxisDrag} onPointerUp={endAxisDrag} onPointerCancel={endAxisDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${isDraggingAxis ? "cursor-grabbing scale-110 bg-amber-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}><RotateCcw size={19} strokeWidth={2.5} /><span className="sr-only">目前角度 {axisAngleDegrees} 度</span></button>}
                       {workflowStep === "calibration" && isDraggingAxis && axisHandle && <div className="pointer-events-none absolute z-30 -translate-x-1/2 translate-y-4 rounded-md border border-amber-100/50 bg-slate-950/90 px-2 py-1 font-mono text-xs font-bold text-amber-100 shadow-lg" style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}>θ = {axisAngleDegrees.toFixed(1)}°</div>}
                     </div>
@@ -1555,13 +1600,32 @@ export default function Home() {
             </section>}
 
             {workflowStep === "tracking" && <section className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-cyan-100">追蹤準星位置</p><p className="mt-1 font-mono text-xs text-slate-300">準星 X: {crosshairPreviewPoint?.pixelX ?? "—"} px　Y: {crosshairPreviewPoint?.pixelY ?? "—"} px</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => editingFrame !== null ? updateEditingTrackingPoint() : crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-cyan-300 px-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={16} />{editingFrame !== null ? "更新此點" : "記錄準星位置"}</button><button type="button" disabled={!canControl || !videoWidth || !videoHeight || autoTrackingStatus === "running"} onClick={() => setCrosshairCenter({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-11 items-center rounded-lg border border-cyan-300/40 px-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">置中</button>{editingFrame !== null && <button type="button" onClick={() => setEditingFrame(null)} className="inline-flex min-h-11 items-center rounded-lg border border-slate-600 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">取消修正</button>}</div></div>
+              <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-cyan-100">追蹤準星位置</p><p className="mt-1 font-mono text-xs text-slate-300">準星 X: {crosshairPreviewPoint?.pixelX ?? "—"} px　Y: {crosshairPreviewPoint?.pixelY ?? "—"} px</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => editingFrame !== null ? updateEditingTrackingPoint() : crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-cyan-300 px-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={16} />{editingFrame !== null ? `更新 Frame ${editingFrame}` : "記錄準星位置"}</button><button type="button" disabled={!canControl || !videoWidth || !videoHeight || autoTrackingStatus === "running"} onClick={() => setCrosshairCenter({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-11 items-center rounded-lg border border-cyan-300/40 px-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">置中</button>{editingFrame !== null && <button type="button" onClick={() => setEditingFrame(null)} className="inline-flex min-h-11 items-center rounded-lg border border-slate-600 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">取消修正</button>}</div></div>
               {editingFrame !== null && <p className="mt-3 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-sm font-semibold text-amber-100" aria-live="polite">正在修正 Frame {editingFrame}</p>}
               <p className="mt-2 text-xs leading-5 text-slate-400">點選影片只會移動準星；確認位置後再按「記錄準星位置」。自動追蹤中拖曳準星會停止追蹤，但保留已建立資料。</p>
               <div className="mt-3 flex flex-wrap gap-2"><label className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-semibold ${trackingMethod === "manual" ? "cursor-pointer border-cyan-300/50 text-cyan-100" : "cursor-not-allowed border-slate-700 text-slate-500"}`}><input type="checkbox" checked={advanceAfterManualRecord} disabled={trackingMethod !== "manual"} onChange={(event) => setAdvanceAfterManualRecord(event.target.checked)} className="h-4 w-4 accent-cyan-300 disabled:opacity-40" />記錄後自動前進一格</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrackingTrail} onChange={(event) => setShowTrackingTrail(event.target.checked)} className="h-4 w-4 accent-cyan-300" />顯示軌跡點</label><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 px-2.5 py-2 text-xs font-semibold text-slate-200"><input type="checkbox" checked={showTrajectoryLines} disabled={!showTrackingTrail} onChange={(event) => setShowTrajectoryLines(event.target.checked)} className="h-4 w-4 accent-cyan-300 disabled:opacity-40" />連接軌跡</label></div>
             </section>}
 
-            {workflowStep === "tracking" && <section className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
+            {workflowStep === "tracking" && <section className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-4 sm:p-5">
+              <div className="mb-4 flex items-center justify-between gap-3"><div className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Crosshair size={18} className="text-cyan-300" />追蹤資料</div><span className="rounded-md bg-slate-800 px-2 py-1 font-mono text-xs text-slate-300">{trackingPoints.length} 點</span></div>
+              <p className="mb-3 text-xs leading-5 text-slate-400">點選一筆資料後，才會展開修正或刪除操作。</p>
+              <div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={() => { setIsConfirmingClearTracking(true); setPendingDeleteFrame(null); }} disabled={trackingPoints.length === 0} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rose-400/40 px-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-400/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 size={16} />清除全部點位</button></div>
+              {isConfirmingClearTracking && <div role="alertdialog" aria-label="確認清除全部追蹤點" className="mb-3 rounded-xl border border-rose-400/40 bg-rose-400/10 p-3"><p className="text-sm font-semibold text-rose-100">確定清除全部追蹤點嗎？</p><p className="mt-1 text-xs text-rose-100/80">此操作無法復原。</p><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" onClick={() => setIsConfirmingClearTracking(false)} className="min-h-11 rounded-lg border border-slate-600 px-3 text-sm font-bold text-slate-100 transition hover:bg-slate-800">取消</button><button type="button" onClick={confirmClearTrackingPoints} className="min-h-11 rounded-lg bg-rose-300 px-3 text-sm font-bold text-slate-950 transition hover:bg-rose-200">清除全部</button></div></div>}
+              {sortedPoints.length > 0 ? <div className="max-h-[34rem] space-y-2 overflow-y-auto pr-1">{sortedPoints.map((point) => {
+                const isSelected = selectedTrackingFrame === point.frame;
+                const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55;
+                const isPendingDelete = pendingDeleteFrame === point.frame;
+                return <article key={point.frame} className={`overflow-hidden rounded-xl border transition ${isSelected ? "border-cyan-300/70 bg-cyan-300/10" : point.frame === currentFrame ? "border-cyan-300/35 bg-cyan-300/5" : "border-slate-700 bg-slate-950/25"}`}>
+                  <button type="button" onClick={() => toggleTrackingPointSelection(point.frame)} aria-expanded={isSelected} className="flex min-h-20 w-full touch-manipulation items-start justify-between gap-3 px-3 py-3 text-left transition hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70">
+                    <div className="min-w-0"><p className="font-mono text-base font-bold text-white">Frame {point.frame}<span className="ml-3 text-sm font-medium text-slate-300">t = {(point.frame / activeFps).toFixed(3)} s</span></p><p className="mt-2 font-mono text-sm text-slate-200">X = {point.pixelX}<span className="ml-4">Y = {point.pixelY}</span></p></div>
+                    <span className={`shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold ${isLowConfidence ? "bg-amber-300/15 text-amber-100" : point.trackingMethod === "auto" ? "bg-emerald-300/15 text-emerald-100" : "bg-slate-800 text-slate-300"}`}>{point.trackingMethod === "auto" ? `Confidence ${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "手動"}</span>
+                  </button>
+                  {isSelected && <div className="border-t border-cyan-300/25 bg-slate-950/35 px-3 py-3"><p className="text-sm font-semibold text-cyan-100">已選擇 Frame {point.frame}</p>{isPendingDelete ? <div className="mt-3 rounded-lg border border-rose-400/35 bg-rose-400/10 p-3"><p className="text-sm font-semibold text-rose-100">確定要刪除 Frame {point.frame} 的追蹤點嗎？</p><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" onClick={() => setPendingDeleteFrame(null)} className="min-h-11 rounded-lg border border-slate-600 px-3 text-sm font-bold text-slate-100 transition hover:bg-slate-800">取消</button><button type="button" onClick={confirmDeleteTrackingPoint} className="min-h-11 rounded-lg bg-rose-300 px-3 text-sm font-bold text-slate-950 transition hover:bg-rose-200">刪除</button></div></div> : <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正此點</button><button type="button" onClick={() => setPendingDeleteFrame(point.frame)} className="min-h-11 rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除此點</button></div>}</div>}
+                </article>;
+              })}</div> : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-center text-xs leading-5 text-slate-400">暫停影片後，點選物體以移動準星，再按「記錄準星位置」。</p>}
+            </section>}
+
+            {workflowStep === "tracking" && <section className="hidden rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
               <div className="mb-4 flex items-center justify-between gap-3"><div className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Crosshair size={18} className="text-cyan-300" />追蹤資料</div><span className="rounded-md bg-slate-800 px-2 py-1 text-xs font-mono text-slate-300">{trackingPoints.length} 點</span></div>
               <div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={clearTrackingPoints} disabled={trackingPoints.length === 0} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rose-400/40 px-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-400/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 size={16} />清除全部點位</button></div>
               {sortedPoints.length > 0 ? <><div className="space-y-3 sm:hidden">{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <article key={point.frame} className={`rounded-xl border p-3 ${point.frame === currentFrame ? "border-cyan-300/50 bg-cyan-300/10" : "border-slate-700 bg-slate-950/25"}`}><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-base font-bold text-white">Frame {point.frame}</p><p className="mt-1 font-mono text-xs text-slate-400">Time {(point.frame / activeFps).toFixed(3)} s</p></div><span className={`rounded-md px-2 py-1 font-mono text-xs font-semibold ${isLowConfidence ? "bg-amber-300/15 text-amber-100" : point.trackingMethod === "auto" ? "bg-emerald-300/15 text-emerald-100" : "bg-slate-800 text-slate-300"}`}>{point.trackingMethod === "auto" ? `信心 ${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "手動"}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt className="text-xs text-slate-500">Pixel X</dt><dd className="font-mono text-slate-100">{point.pixelX}</dd></div><div><dt className="text-xs text-slate-500">Pixel Y</dt><dd className="font-mono text-slate-100">{point.pixelY}</dd></div></dl><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></div></article>; })}</div><div className="hidden max-h-72 overflow-auto rounded-lg border border-slate-700 sm:block"><table className="w-full min-w-[660px] border-collapse text-left text-xs"><thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-2.5 py-2 font-semibold">Frame</th><th className="px-2.5 py-2 font-semibold">Time (s)</th><th className="px-2.5 py-2 font-semibold">Pixel X</th><th className="px-2.5 py-2 font-semibold">Pixel Y</th><th className="px-2.5 py-2 font-semibold">Confidence</th><th className="px-2.5 py-2 font-semibold">修正</th><th className="px-2.5 py-2 font-semibold">刪除</th></tr></thead><tbody>{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-2.5 py-2 font-mono text-slate-100">{point.frame}</td><td className="px-2.5 py-2 font-mono text-slate-300">{(point.frame / activeFps).toFixed(3)}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelX}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelY}</td><td className={`px-2.5 py-2 font-mono font-semibold ${isLowConfidence ? "text-amber-200" : point.trackingMethod === "auto" ? "text-emerald-200" : "text-slate-400"}`}>{point.trackingMethod === "auto" ? `${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "—"}</td><td className="px-2.5 py-2"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 whitespace-nowrap rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button></td><td className="px-2.5 py-2"><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 whitespace-nowrap rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></td></tr>; })}</tbody></table></div></> : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-center text-xs leading-5 text-slate-400">暫停影片後，點選物體以移動準星，再按「記錄準星位置」。</p>}
