@@ -1,6 +1,10 @@
 "use client";
 
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   ChevronLeft,
   ChevronRight,
   Crosshair,
@@ -256,6 +260,7 @@ export default function Home() {
   const [searchRadius, setSearchRadius] = useState(80);
   const [trackingReticleRadius, setTrackingReticleRadius] = useState(18);
   const [crosshairCenter, setCrosshairCenter] = useState<PixelPoint | null>(null);
+  const [crosshairNudgeStep, setCrosshairNudgeStep] = useState(1);
   const [isDraggingCrosshair, setIsDraggingCrosshair] = useState(false);
   const [advanceAfterManualRecord, setAdvanceAfterManualRecord] = useState(true);
   const [showTrackingTrail, setShowTrackingTrail] = useState(true);
@@ -658,6 +663,21 @@ export default function Home() {
   const updateCrosshairCenterFromPointer = (clientX: number, clientY: number) => {
     const point = getPixelPointFromClient(clientX, clientY);
     if (point) setCrosshairCenter(clampCrosshairCenter(point));
+  };
+
+  const nudgeCrosshair = (deltaX: number, deltaY: number) => {
+    if (!videoWidth || !videoHeight || trackingMethod !== "manual" || autoTrackingStatus === "running") return;
+    videoRef.current?.pause();
+    setCrosshairCenter((current) => {
+      const startingPoint = current ?? {
+        pixelX: Math.round(videoWidth / 2),
+        pixelY: Math.round(videoHeight / 2),
+      };
+      return clampCrosshairCenter({
+        pixelX: startingPoint.pixelX + deltaX,
+        pixelY: startingPoint.pixelY + deltaY,
+      });
+    });
   };
 
   const beginCrosshairDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -1506,7 +1526,39 @@ export default function Home() {
             </div>}
 
             {workflowStep === "tracking" && <div className="rounded-2xl border border-cyan-300/35 bg-cyan-300/10 p-3.5 shadow-lg shadow-black/10">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-cyan-100">手動追蹤</p><p className="mt-0.5 text-xs text-slate-300">先點選影片或拖曳準星對準物體，再記錄目前位置。</p></div><button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => editingFrame !== null ? updateEditingTrackingPoint() : crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={18} />{editingFrame !== null ? `更新 Frame ${editingFrame}` : "記錄準星位置"}</button></div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-cyan-100">手動追蹤</p>
+                  <p className="mt-0.5 text-xs text-slate-300">先點選影片或拖曳準星對準物體，再用方向鍵精細對準。</p>
+                </div>
+                <button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => editingFrame !== null ? updateEditingTrackingPoint() : crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={18} />{editingFrame !== null ? `更新 Frame ${editingFrame}` : "記錄準星位置"}</button>
+              </div>
+              <div className="mt-3 grid gap-3 border-t border-cyan-200/15 pt-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                <div className="mx-auto grid w-fit grid-cols-3 gap-1.5 sm:mx-0" aria-label="準星方向微調">
+                  <span aria-hidden="true" />
+                  <button type="button" aria-label={`準星向上移動 ${crosshairNudgeStep} 像素`} disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => nudgeCrosshair(0, -crosshairNudgeStep)} className="inline-flex h-12 w-12 touch-manipulation items-center justify-center rounded-xl border border-cyan-200/40 bg-slate-950/55 text-cyan-100 transition active:scale-95 active:bg-cyan-300/25 disabled:cursor-not-allowed disabled:opacity-35"><ArrowUp size={24} strokeWidth={2.5} /></button>
+                  <span aria-hidden="true" />
+                  <button type="button" aria-label={`準星向左移動 ${crosshairNudgeStep} 像素`} disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => nudgeCrosshair(-crosshairNudgeStep, 0)} className="inline-flex h-12 w-12 touch-manipulation items-center justify-center rounded-xl border border-cyan-200/40 bg-slate-950/55 text-cyan-100 transition active:scale-95 active:bg-cyan-300/25 disabled:cursor-not-allowed disabled:opacity-35"><ArrowLeft size={24} strokeWidth={2.5} /></button>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-300/25 bg-cyan-300/10 text-cyan-200" aria-hidden="true"><Crosshair size={20} /></div>
+                  <button type="button" aria-label={`準星向右移動 ${crosshairNudgeStep} 像素`} disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => nudgeCrosshair(crosshairNudgeStep, 0)} className="inline-flex h-12 w-12 touch-manipulation items-center justify-center rounded-xl border border-cyan-200/40 bg-slate-950/55 text-cyan-100 transition active:scale-95 active:bg-cyan-300/25 disabled:cursor-not-allowed disabled:opacity-35"><ArrowRight size={24} strokeWidth={2.5} /></button>
+                  <span aria-hidden="true" />
+                  <button type="button" aria-label={`準星向下移動 ${crosshairNudgeStep} 像素`} disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => nudgeCrosshair(0, crosshairNudgeStep)} className="inline-flex h-12 w-12 touch-manipulation items-center justify-center rounded-xl border border-cyan-200/40 bg-slate-950/55 text-cyan-100 transition active:scale-95 active:bg-cyan-300/25 disabled:cursor-not-allowed disabled:opacity-35"><ArrowDown size={24} strokeWidth={2.5} /></button>
+                  <span aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-100">準星微調</p>
+                      <p className="mt-1 font-mono text-xs text-cyan-100" aria-live="polite">X: {crosshairPreviewPoint?.pixelX ?? "—"} px　Y: {crosshairPreviewPoint?.pixelY ?? "—"} px</p>
+                    </div>
+                    <button type="button" disabled={!canControl || !videoWidth || !videoHeight || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => setCrosshairCenter({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-11 touch-manipulation items-center rounded-lg border border-cyan-300/40 px-3 text-sm font-semibold text-cyan-100 transition active:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-40">置中</button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-400">每次移動</span>
+                    {[1, 5, 10].map((step) => <button key={step} type="button" onClick={() => setCrosshairNudgeStep(step)} aria-pressed={crosshairNudgeStep === step} className={`min-h-11 touch-manipulation rounded-lg border px-3 text-sm font-bold transition ${crosshairNudgeStep === step ? "border-cyan-200 bg-cyan-300 text-slate-950" : "border-slate-600 bg-slate-900/55 text-slate-200 active:bg-slate-700"}`}>{step} px</button>)}
+                  </div>
+                </div>
+              </div>
             </div>}
 
             {(workflowStep === "video" || workflowStep === "reticle" || workflowStep === "tracking") && <div className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-4 shadow-lg shadow-black/10 sm:p-5">
@@ -1546,10 +1598,7 @@ export default function Home() {
                 <button type="button" disabled={!canControl} onClick={() => setTrackingWorkflow("manual")} className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${trackingMethod === "manual" && mode === "track" ? "border-cyan-300 bg-cyan-300/15 text-cyan-100" : "border-slate-700 bg-slate-900/50 text-slate-300 hover:border-slate-500"}`}><Crosshair size={17} />手動追蹤</button>
                 <button type="button" disabled={!canControl || isDemoMode} onClick={() => setTrackingWorkflow("auto")} className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${trackingMethod === "auto" && mode === "track" ? "border-emerald-300 bg-emerald-300/15 text-emerald-100" : "border-slate-700 bg-slate-900/50 text-slate-300 hover:border-slate-500"}`}><Crosshair size={17} />自動追蹤</button>
               </div>
-              {workflowStep === "tracking" && <div className="mt-2 grid grid-cols-2 gap-2">
-                {([ ["scale", "比例尺", Ruler], ["origin", "原點", MapPin] ] as const).map(([value, label, Icon]) => <button key={value} type="button" disabled={!canControl} onClick={() => value === "origin" ? startOriginSetup() : setActiveMode(value)} className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${mode === value || (value === "origin" && origin) ? value === "scale" ? "border-fuchsia-300 bg-fuchsia-300/15 text-fuchsia-100" : "border-amber-300 bg-amber-300/15 text-amber-100" : "border-slate-700 bg-slate-900/50 text-slate-300 hover:border-slate-500"}`}><Icon size={16} />{label}</button>)}
-              </div>}
-              <p className="mt-3 text-xs leading-5 text-slate-400">手動與自動追蹤只能擇一；比例尺與原點設定不會新增追蹤點。</p>
+              <p className="mt-3 text-xs leading-5 text-slate-400">手動與自動追蹤只能擇一；原點與比例尺請在第 4 步設定。</p>
             </section>}
 
             {(workflowStep === "reticle" || workflowStep === "tracking") && <section className="rounded-2xl border border-emerald-300/25 bg-[#0c1b2c] p-5">
