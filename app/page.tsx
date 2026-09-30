@@ -55,6 +55,7 @@ import {
 } from "@/lib/coordinate-transform";
 import {
   ChangeEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -972,6 +973,17 @@ export default function Home() {
     setCrosshairCenter(clampCrosshairCenter(point));
   };
 
+  // Safari on some iPhone versions can deliver a tap as a click without a
+  // PointerEvent. Keep Pointer Events as the primary path, and use this
+  // narrow fallback only for manual alignment so a tap always moves the reticle.
+  const handleManualOverlayClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isPlaying || trackingMethod !== "manual" || workflowStep !== "tracking" || mode !== "track") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = getPixelPointFromClient(event.clientX, event.clientY);
+    if (point) setCrosshairCenter(clampCrosshairCenter(point));
+  };
+
   const stopAutoTracking = () => {
     autoTrackingRunRef.current += 1;
     videoRef.current?.pause();
@@ -1411,6 +1423,7 @@ export default function Home() {
                       className={`absolute z-10 touch-none ${isPlaying ? "pointer-events-none" : "cursor-crosshair"}`}
                       style={{ left: contentBounds.left, top: contentBounds.top, width: contentBounds.width, height: contentBounds.height }}
                       onPointerDown={handleOverlayPointerDown}
+                      onClick={handleManualOverlayClick}
                     >
                       {workflowStep === "tracking" && isDebugMode && showBinaryMask && debugMaskOverlay && <span aria-hidden="true" className="pointer-events-none absolute" style={{ left: `${(debugMaskOverlay.region.x / videoWidth) * 100}%`, top: `${(debugMaskOverlay.region.y / videoHeight) * 100}%`, width: `${(debugMaskOverlay.region.width / videoWidth) * 100}%`, height: `${(debugMaskOverlay.region.height / videoHeight) * 100}%`, backgroundImage: `url(${debugMaskOverlay.dataUrl})`, backgroundSize: "100% 100%", imageRendering: "pixelated" }} />}
                       <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${videoWidth} ${videoHeight}`} preserveAspectRatio="none" aria-hidden="true">
@@ -1490,6 +1503,10 @@ export default function Home() {
               <span className="font-mono text-slate-300">{videoDimensions ? `${videoDimensions.width} × ${videoDimensions.height}` : "—"}</span>
               <span className="font-mono text-slate-300">{formatTime(duration)}</span>
               <span className="font-mono text-cyan-100">{activeFps} fps</span>
+            </div>}
+
+            {workflowStep === "tracking" && <div className="rounded-2xl border border-cyan-300/35 bg-cyan-300/10 p-3.5 shadow-lg shadow-black/10">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-cyan-100">手動追蹤</p><p className="mt-0.5 text-xs text-slate-300">先點選影片或拖曳準星對準物體，再記錄目前位置。</p></div><button type="button" disabled={!canControl || !crosshairPreviewPoint || trackingMethod !== "manual" || autoTrackingStatus === "running"} onClick={() => editingFrame !== null ? updateEditingTrackingPoint() : crosshairPreviewPoint && recordManualTrackingPoint(crosshairPreviewPoint)} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"><Crosshair size={18} />{editingFrame !== null ? `更新 Frame ${editingFrame}` : "記錄準星位置"}</button></div>
             </div>}
 
             {(workflowStep === "video" || workflowStep === "reticle" || workflowStep === "tracking") && <div className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-4 shadow-lg shadow-black/10 sm:p-5">
