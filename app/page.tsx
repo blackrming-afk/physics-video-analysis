@@ -205,7 +205,6 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const objectUrlRef = useRef<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const originDragPointerRef = useRef<number | null>(null);
   const axisDragPointerRef = useRef<number | null>(null);
   const scaleDragPointerRef = useRef<{ pointerId: number; endpoint: ScaleEndpoint } | null>(null);
   const crosshairDragPointerRef = useRef<number | null>(null);
@@ -238,8 +237,8 @@ export default function Home() {
   const [scaleLengthInput, setScaleLengthInput] = useState("");
   const [scaleCalibration, setScaleCalibration] = useState<ScaleCalibration | null>(null);
   const [origin, setOrigin] = useState<PixelPoint | null>(null);
+  const [originNudgeStep, setOriginNudgeStep] = useState(1);
   const [axisAngleDegrees, setAxisAngleDegrees] = useState(0);
-  const [isDraggingOrigin, setIsDraggingOrigin] = useState(false);
   const [isDraggingAxis, setIsDraggingAxis] = useState(false);
   const [draggingScaleEndpoint, setDraggingScaleEndpoint] = useState<ScaleEndpoint | null>(null);
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("raw");
@@ -289,7 +288,11 @@ export default function Home() {
   const axisAngleRadians = degreesToRadians(axisAngleDegrees);
   const axisCosine = Math.cos(axisAngleRadians);
   const axisSine = Math.sin(axisAngleRadians);
-  const axisHandleDistance = Math.min(160, Math.max(80, Math.min(videoWidth || 80, videoHeight || 80) * 0.18));
+  const displayedVideoScale = contentBounds && videoWidth > 0 ? contentBounds.width / videoWidth : 1;
+  const axisHandleDistance = Math.min(
+    Math.max(80, Math.min(videoWidth || 80, videoHeight || 80) * 0.35),
+    Math.max(80, 72 / Math.max(displayedVideoScale, 0.001)),
+  );
   const axisHandle = origin ? axisHandlePosition(origin, axisAngleDegrees, axisHandleDistance) : null;
   const crosshairVisualExtent = trackingReticleRadius + Math.max(5, trackingReticleRadius * 0.38);
   const crosshairPreviewPoint: PixelPoint | null = (workflowStep === "reticle" || workflowStep === "tracking") && videoWidth > 0 && videoHeight > 0
@@ -621,10 +624,25 @@ export default function Home() {
 
   const startOriginSetup = () => {
     if (!videoWidth || !videoHeight) return;
-    setOrigin({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) });
+    setOrigin((currentOrigin) => currentOrigin ?? { pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) });
     setIsSelectingColor(false);
-    setMode("track");
+    setMode("origin");
     setError("");
+  };
+
+  const nudgeOrigin = (deltaX: number, deltaY: number) => {
+    if (!videoWidth || !videoHeight || mode !== "origin") return;
+    videoRef.current?.pause();
+    setOrigin((currentOrigin) => {
+      const startingPoint = currentOrigin ?? {
+        pixelX: Math.round(videoWidth / 2),
+        pixelY: Math.round(videoHeight / 2),
+      };
+      return {
+        pixelX: Math.round(Math.min(videoWidth - 1, Math.max(0, startingPoint.pixelX + deltaX))),
+        pixelY: Math.round(Math.min(videoHeight - 1, Math.max(0, startingPoint.pixelY + deltaY))),
+      };
+    });
   };
 
   const setTrackingWorkflow = (nextMethod: TrackingMethod) => {
@@ -712,31 +730,6 @@ export default function Home() {
     crosshairDragPointerRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     setIsDraggingCrosshair(false);
-  };
-
-  const beginOriginDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (isPlaying || !origin) return;
-    event.preventDefault();
-    event.stopPropagation();
-    originDragPointerRef.current = event.pointerId;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setIsDraggingOrigin(true);
-  };
-
-  const moveOriginDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (originDragPointerRef.current !== event.pointerId) return;
-    event.preventDefault();
-    const point = getPixelPointFromClient(event.clientX, event.clientY);
-    if (point) setOrigin(point);
-  };
-
-  const endOriginDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (originDragPointerRef.current !== event.pointerId) return;
-    const point = getPixelPointFromClient(event.clientX, event.clientY);
-    if (point) setOrigin(point);
-    originDragPointerRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    setIsDraggingOrigin(false);
   };
 
   const updateScaleEndpointFromPointer = (endpoint: ScaleEndpoint, clientX: number, clientY: number) => {
@@ -952,8 +945,8 @@ export default function Home() {
 
     if (mode === "origin") {
       if (workflowStep !== "calibration") return;
-      setOrigin(point);
-      setMode("track");
+      // Origin placement is intentionally controlled by the calibration
+      // direction pad so touch gestures on the video cannot move it by mistake.
       return;
     }
 
@@ -1371,7 +1364,7 @@ export default function Home() {
       ? isSelectingColor ? "自動追蹤：點選物體取得 7×7 顏色樣本" : "自動追蹤：先選取追蹤物體，再開始追蹤"
       : "手動追蹤：點選物體位置",
     scale: !scaleDraftA ? "比例尺：先點選 A" : !scaleDraftB ? "比例尺：再點選 B" : "比例尺：輸入實際長度後套用",
-    origin: "原點模式：點選 O 的位置",
+    origin: "原點模式：使用下方方向鍵微調後確認",
   };
   const workflowCompletion = {
     video: Boolean(videoUrl || isDemoMode),
@@ -1494,7 +1487,6 @@ export default function Home() {
                       </svg>
                       {crosshairPreviewPoint && <button type="button" aria-label="拖曳以移動準星中心" title="拖曳準星中心" onPointerDown={beginCrosshairDrag} onPointerMove={moveCrosshairDrag} onPointerUp={endCrosshairDrag} onPointerCancel={endCrosshairDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent transition ${isDraggingCrosshair ? "cursor-grabbing border-cyan-100/80 bg-cyan-300/15" : "cursor-grab hover:border-cyan-100/65 hover:bg-cyan-300/10"}`} style={{ left: `${(crosshairPreviewPoint.pixelX / videoWidth) * 100}%`, top: `${(crosshairPreviewPoint.pixelY / videoHeight) * 100}%` }}><span className="sr-only">準星中心 X {crosshairPreviewPoint.pixelX}，Y {crosshairPreviewPoint.pixelY}</span></button>}
                       {workflowStep === "calibration" && scaleLine && !isSelectingColor && autoTrackingStatus !== "running" && <><button type="button" aria-label="拖曳以移動比例尺 A 點" title="拖曳 A 點" onPointerDown={(event) => beginScaleEndpointDrag("A", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "A" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointA.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointA.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 A 點</span></button>{scaleLine.pointB && <button type="button" aria-label="拖曳以移動比例尺 B 點" title="拖曳 B 點" onPointerDown={(event) => beginScaleEndpointDrag("B", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "B" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointB.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointB.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 B 點</span></button>}</>}
-                      {workflowStep === "calibration" && origin && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以移動座標原點" title="拖曳 O 移動座標原點" onPointerDown={beginOriginDrag} onPointerMove={moveOriginDrag} onPointerUp={endOriginDrag} onPointerCancel={endOriginDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${isDraggingOrigin ? "cursor-grabbing scale-110 border-amber-100 bg-amber-300/20" : "cursor-grab hover:border-amber-100/65 hover:bg-amber-300/10"}`} style={{ left: `${(origin.pixelX / videoWidth) * 100}%`, top: `${(origin.pixelY / videoHeight) * 100}%` }}><span className="sr-only">座標原點 O</span></button>}
                       {workflowStep === "calibration" && axisHandle && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以旋轉座標軸" title="拖曳旋轉座標軸" onPointerDown={beginAxisDrag} onPointerMove={moveAxisDrag} onPointerUp={endAxisDrag} onPointerCancel={endAxisDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${isDraggingAxis ? "cursor-grabbing scale-110 bg-amber-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}><RotateCcw size={19} strokeWidth={2.5} /><span className="sr-only">目前角度 {axisAngleDegrees} 度</span></button>}
                       {workflowStep === "calibration" && isDraggingAxis && axisHandle && <div className="pointer-events-none absolute z-30 -translate-x-1/2 translate-y-4 rounded-md border border-amber-100/50 bg-slate-950/90 px-2 py-1 font-mono text-xs font-bold text-amber-100 shadow-lg" style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}>θ = {axisAngleDegrees.toFixed(1)}°</div>}
                     </div>
@@ -1653,9 +1645,38 @@ export default function Home() {
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <button type="button" disabled={!canControl} onClick={() => { setScaleCalibration(null); setActiveMode("scale"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-fuchsia-300/40 px-3 text-xs font-semibold text-fuchsia-100 transition hover:bg-fuchsia-300/10 disabled:cursor-not-allowed disabled:opacity-40"><Ruler size={15} />{scaleCalibration ? "重新設定比例尺" : "設定比例尺"}</button>
-                <button type="button" disabled={!canControl} onClick={startOriginSetup} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300/40 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-40"><MapPin size={15} />{origin ? "重新設定原點" : "設定原點"}</button>
+                <button type="button" disabled={!canControl} onClick={startOriginSetup} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300/40 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-40"><MapPin size={15} />{origin ? "調整原點" : "設定原點"}</button>
               </div>
-              {origin && <p className="mt-3 text-xs leading-5 text-amber-100">可直接拖曳影片上的 <span className="font-bold">O</span> 移動原點，或拖曳 x 軸上的 <span className="font-bold">旋轉控制點</span>；所有追蹤點、運動分析、圖表與擬合會即時重新換算。</p>}
+              {origin && mode === "origin" && <div className="mt-4 rounded-xl border border-amber-300/35 bg-amber-300/5 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-bold text-amber-100">原點位置微調</p>
+                    <p className="mt-1 font-mono text-xs text-amber-50" aria-live="polite">O = ({origin.pixelX}, {origin.pixelY}) px</p>
+                  </div>
+                  <button type="button" onClick={() => setOrigin({ pixelX: Math.round(videoWidth / 2), pixelY: Math.round(videoHeight / 2) })} className="inline-flex min-h-11 touch-manipulation items-center rounded-lg border border-amber-300/40 px-3 text-sm font-semibold text-amber-100 active:bg-amber-300/15">置中</button>
+                </div>
+                <div className="mt-3 grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                  <div className="mx-auto grid w-fit grid-cols-3 gap-1.5 sm:mx-0" aria-label="原點方向微調">
+                    <span aria-hidden="true" />
+                    <button type="button" aria-label={`原點向上移動 ${originNudgeStep} 像素`} onClick={() => nudgeOrigin(0, -originNudgeStep)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-amber-200/50 bg-slate-950/55 text-amber-100 active:scale-95 active:bg-amber-300/25"><ArrowUp size={25} strokeWidth={2.5} /></button>
+                    <span aria-hidden="true" />
+                    <button type="button" aria-label={`原點向左移動 ${originNudgeStep} 像素`} onClick={() => nudgeOrigin(-originNudgeStep, 0)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-amber-200/50 bg-slate-950/55 text-amber-100 active:scale-95 active:bg-amber-300/25"><ArrowLeft size={25} strokeWidth={2.5} /></button>
+                    <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-amber-300/30 bg-amber-300/10 text-amber-200" aria-hidden="true"><MapPin size={21} /></div>
+                    <button type="button" aria-label={`原點向右移動 ${originNudgeStep} 像素`} onClick={() => nudgeOrigin(originNudgeStep, 0)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-amber-200/50 bg-slate-950/55 text-amber-100 active:scale-95 active:bg-amber-300/25"><ArrowRight size={25} strokeWidth={2.5} /></button>
+                    <span aria-hidden="true" />
+                    <button type="button" aria-label={`原點向下移動 ${originNudgeStep} 像素`} onClick={() => nudgeOrigin(0, originNudgeStep)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-amber-200/50 bg-slate-950/55 text-amber-100 active:scale-95 active:bg-amber-300/25"><ArrowDown size={25} strokeWidth={2.5} /></button>
+                    <span aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-300">每次移動</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {[1, 5, 10].map((step) => <button key={step} type="button" onClick={() => setOriginNudgeStep(step)} aria-pressed={originNudgeStep === step} className={`min-h-11 touch-manipulation rounded-lg border px-3 text-sm font-bold transition ${originNudgeStep === step ? "border-amber-200 bg-amber-300 text-slate-950" : "border-slate-600 bg-slate-900/55 text-slate-200 active:bg-slate-700"}`}>{step} px</button>)}
+                    </div>
+                    <button type="button" onClick={() => setMode("track")} className="mt-3 inline-flex min-h-12 w-full touch-manipulation items-center justify-center rounded-xl bg-amber-300 px-4 text-sm font-bold text-slate-950 active:bg-amber-200">確認原點</button>
+                  </div>
+                </div>
+              </div>}
+              {origin && mode !== "origin" && <p className="mt-3 text-xs leading-5 text-amber-100">按「調整原點」後使用方向鍵移動 <span className="font-bold">O</span>；座標軸旋轉仍使用影片上的 <span className="font-bold">旋轉控制點</span>。所有追蹤點、運動分析、圖表與擬合會即時重新換算。</p>}
               {scaleDraftA && scaleDraftB && <div className="mt-4 rounded-xl border border-fuchsia-300/30 bg-fuchsia-300/5 p-3"><p className="text-xs leading-5 text-fuchsia-100">直接拖曳影片上的 A、B 調整線段。A、B 相距 <span className="font-mono font-bold">{formatPixelDistance(draftPixelDistance)} px</span>，再輸入實際長度：</p><div className="mt-3 flex gap-2"><div className="relative min-w-0 flex-1"><input aria-label="比例尺實際長度（公尺）" type="number" min="0.000001" step="any" inputMode="decimal" value={scaleLengthInput} onChange={(event) => setScaleLengthInput(event.target.value)} placeholder="例如 1.00" className="w-full rounded-lg border border-fuchsia-300/40 bg-slate-950 px-3 py-2 pr-8 text-sm font-semibold text-white outline-none focus:border-fuchsia-200" /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-400">m</span></div><button type="button" onClick={applyScaleCalibration} className="rounded-lg bg-fuchsia-300 px-3 text-xs font-bold text-slate-950 hover:bg-fuchsia-200">套用</button></div></div>}
             </section>}
 
