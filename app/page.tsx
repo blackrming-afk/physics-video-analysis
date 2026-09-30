@@ -54,6 +54,7 @@ import {
   axisAngleFromPointer,
   axisHandlePosition,
   degreesToRadians,
+  normalizeDegrees,
   pixelToPhysicalCoordinate,
   snapAxisAngle,
 } from "@/lib/coordinate-transform";
@@ -1487,7 +1488,7 @@ export default function Home() {
                       </svg>
                       {crosshairPreviewPoint && <button type="button" aria-label="拖曳以移動準星中心" title="拖曳準星中心" onPointerDown={beginCrosshairDrag} onPointerMove={moveCrosshairDrag} onPointerUp={endCrosshairDrag} onPointerCancel={endCrosshairDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent transition ${isDraggingCrosshair ? "cursor-grabbing border-cyan-100/80 bg-cyan-300/15" : "cursor-grab hover:border-cyan-100/65 hover:bg-cyan-300/10"}`} style={{ left: `${(crosshairPreviewPoint.pixelX / videoWidth) * 100}%`, top: `${(crosshairPreviewPoint.pixelY / videoHeight) * 100}%` }}><span className="sr-only">準星中心 X {crosshairPreviewPoint.pixelX}，Y {crosshairPreviewPoint.pixelY}</span></button>}
                       {workflowStep === "calibration" && scaleLine && !isSelectingColor && autoTrackingStatus !== "running" && <><button type="button" aria-label="拖曳以移動比例尺 A 點" title="拖曳 A 點" onPointerDown={(event) => beginScaleEndpointDrag("A", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "A" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointA.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointA.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 A 點</span></button>{scaleLine.pointB && <button type="button" aria-label="拖曳以移動比例尺 B 點" title="拖曳 B 點" onPointerDown={(event) => beginScaleEndpointDrag("B", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "B" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointB.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointB.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 B 點</span></button>}</>}
-                      {workflowStep === "calibration" && axisHandle && mode === "track" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以旋轉座標軸" title="拖曳旋轉座標軸" onPointerDown={beginAxisDrag} onPointerMove={moveAxisDrag} onPointerUp={endAxisDrag} onPointerCancel={endAxisDrag} className={`absolute z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition ${isDraggingAxis ? "cursor-grabbing scale-110 bg-amber-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}><RotateCcw size={19} strokeWidth={2.5} /><span className="sr-only">目前角度 {axisAngleDegrees} 度</span></button>}
+                      {workflowStep === "calibration" && axisHandle && mode !== "scale" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以旋轉座標軸" title="拖曳旋轉座標軸" onPointerDown={beginAxisDrag} onPointerMove={moveAxisDrag} onPointerUp={endAxisDrag} onPointerCancel={endAxisDrag} onLostPointerCapture={endAxisDrag} className={`absolute z-20 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none select-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition-[transform,background-color,color] ${isDraggingAxis ? "cursor-grabbing scale-110 bg-amber-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}><RotateCcw size={20} strokeWidth={2.5} /><span className="sr-only">目前角度 {axisAngleDegrees} 度</span></button>}
                       {workflowStep === "calibration" && isDraggingAxis && axisHandle && <div className="pointer-events-none absolute z-30 -translate-x-1/2 translate-y-4 rounded-md border border-amber-100/50 bg-slate-950/90 px-2 py-1 font-mono text-xs font-bold text-amber-100 shadow-lg" style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}>θ = {axisAngleDegrees.toFixed(1)}°</div>}
                     </div>
                   )}
@@ -1639,8 +1640,26 @@ export default function Home() {
               </dl>
               <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-300/5 p-3">
                 <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-amber-100">座標軸旋轉</span><output className="font-mono text-sm font-bold text-amber-100">θ = {axisAngleDegrees.toFixed(1)}°</output></div>
-                <p className="mt-2 text-xs leading-5 text-slate-300">直接拖曳影片 x 軸正方向上的 <span className="font-bold text-amber-100">旋轉控制點</span>。接近 0°、90°、180°、270° 時會輕微吸附。</p>
-                <div className="mt-3 flex gap-2"><button type="button" disabled={!canControl} onClick={() => setAxisAngleDegrees(0)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300/40 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:opacity-40"><RotateCcw size={15} />重設水平</button></div>
+                <p className="mt-2 text-xs leading-5 text-slate-300">拖曳影片 x 軸正方向上的 <span className="font-bold text-amber-100">旋轉控制點</span>，或直接使用下方滑桿。接近 0°、90°、180°、270° 時會輕微吸附。</p>
+                <div className="mt-3 rounded-lg border border-amber-300/20 bg-slate-950/35 p-3">
+                  <input
+                    type="range"
+                    aria-label="座標軸旋轉角度"
+                    aria-valuetext={`${axisAngleDegrees.toFixed(1)} 度`}
+                    min="-180"
+                    max="180"
+                    step="0.5"
+                    value={axisAngleDegrees}
+                    disabled={!canControl || !origin}
+                    onChange={(event) => setAxisAngleDegrees(Number(event.target.value))}
+                    className="h-8 w-full touch-manipulation accent-amber-300 disabled:opacity-40"
+                  />
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <button type="button" disabled={!canControl || !origin} onClick={() => setAxisAngleDegrees((angle) => normalizeDegrees(angle - 1))} className="min-h-11 touch-manipulation rounded-lg border border-amber-300/35 text-sm font-bold text-amber-100 active:bg-amber-300/20 disabled:opacity-40">−1°</button>
+                    <button type="button" disabled={!canControl || !origin} onClick={() => setAxisAngleDegrees(0)} className="inline-flex min-h-11 touch-manipulation items-center justify-center gap-1.5 rounded-lg border border-amber-300/40 px-3 text-xs font-semibold text-amber-100 active:bg-amber-300/20 disabled:opacity-40"><RotateCcw size={15} />重設水平</button>
+                    <button type="button" disabled={!canControl || !origin} onClick={() => setAxisAngleDegrees((angle) => normalizeDegrees(angle + 1))} className="min-h-11 touch-manipulation rounded-lg border border-amber-300/35 text-sm font-bold text-amber-100 active:bg-amber-300/20 disabled:opacity-40">+1°</button>
+                  </div>
+                </div>
                 <p className="mt-2 text-xs leading-5 text-slate-400">旋轉後所有位置、速度、加速度、圖表、擬合與 CSV 立即使用新座標軸。</p>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
