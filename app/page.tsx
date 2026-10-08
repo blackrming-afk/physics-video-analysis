@@ -1342,13 +1342,13 @@ export default function Home() {
 
   const chartOptions: Array<{ id: ChartMetric; label: string; axisLabel: string; color: string }> = [
     { id: "xy", label: "x-y", axisLabel: "位置 (m)", color: "#22d3ee" },
-    { id: "x", label: "x vs t", axisLabel: "x (m)", color: "#22d3ee" },
-    { id: "y", label: "y vs t", axisLabel: "y (m)", color: "#a78bfa" },
-    { id: "vx", label: "vx vs t", axisLabel: "Vx (m/s)", color: "#38bdf8" },
-    { id: "vy", label: "vy vs t", axisLabel: "Vy (m/s)", color: "#c084fc" },
-    { id: "speed", label: "speed vs t", axisLabel: "Speed (m/s)", color: "#34d399" },
-    { id: "ax", label: "ax vs t", axisLabel: "Ax (m/s²)", color: "#fbbf24" },
-    { id: "ay", label: "ay vs t", axisLabel: "Ay (m/s²)", color: "#fb7185" },
+    { id: "x", label: "x-t", axisLabel: "x (m)", color: "#22d3ee" },
+    { id: "y", label: "y-t", axisLabel: "y (m)", color: "#a78bfa" },
+    { id: "vx", label: "Vx-t", axisLabel: "Vx (m/s)", color: "#38bdf8" },
+    { id: "vy", label: "Vy-t", axisLabel: "Vy (m/s)", color: "#c084fc" },
+    { id: "speed", label: "speed-t", axisLabel: "Speed (m/s)", color: "#34d399" },
+    { id: "ax", label: "ax-t", axisLabel: "Ax (m/s²)", color: "#fbbf24" },
+    { id: "ay", label: "ay-t", axisLabel: "Ay (m/s²)", color: "#fb7185" },
   ];
   const selectedChart = chartOptions.find((option) => option.id === chartMetric) ?? chartOptions[0];
   const parsedFitStart = fitStartFrame.trim() === "" ? undefined : Number(fitStartFrame);
