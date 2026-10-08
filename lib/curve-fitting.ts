@@ -1,3 +1,5 @@
+import { formatSignificant } from "@/lib/number-format";
+
 export type FitPoint = { t: number; value: number };
 
 export type FitModel = "none" | "linear" | "quadratic" | "exponential" | "logarithmic" | "power" | "inverse" | "sine" | "cosine";
@@ -27,7 +29,7 @@ function hasFiniteValues(points: FitPoint[]) {
 }
 
 function formatCoefficient(value: number) {
-  return Number(value.toPrecision(7)).toString();
+  return formatSignificant(value);
 }
 
 function signedTerm(value: number, suffix: string) {

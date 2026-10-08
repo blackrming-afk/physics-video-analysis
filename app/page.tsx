@@ -35,6 +35,7 @@ import {
   YAxis,
 } from "recharts";
 import { fitData, type FitModel, type FitResult } from "@/lib/curve-fitting";
+import { formatSignificant } from "@/lib/number-format";
 import { analysisTimeFromFrame, firstTrackedFrame } from "@/lib/analysis-time";
 import { FloatingFitResultPanel } from "@/components/FloatingFitResultPanel";
 import { StepNavigation, type WorkflowStep } from "@/components/StepNavigation";
@@ -148,6 +149,60 @@ type TimeChartPoint = ChartPoint & {
   value: number;
 };
 
+type ChartTooltipEntry = {
+  dataKey?: string | number;
+  name?: string | number;
+  value?: number | string;
+  payload?: ChartPoint & { fit?: number };
+};
+
+const CHART_UNITS: Record<ChartMetric, string> = {
+  xy: "m",
+  x: "m",
+  y: "m",
+  vx: "m/s",
+  vy: "m/s",
+  speed: "m/s",
+  ax: "m/s²",
+  ay: "m/s²",
+};
+
+const CHART_QUANTITIES: Record<ChartMetric, string> = {
+  xy: "(x, y)",
+  x: "x",
+  y: "y",
+  vx: "vₓ",
+  vy: "vᵧ",
+  speed: "speed",
+  ax: "aₓ",
+  ay: "aᵧ",
+};
+
+function XyChartTooltip({ active, payload }: { active?: boolean; payload?: readonly ChartTooltipEntry[] }) {
+  const point = payload?.find((entry) => entry.payload && typeof entry.payload.x === "number" && typeof entry.payload.y === "number")?.payload;
+  if (!active || !point || typeof point.x !== "number" || typeof point.y !== "number") return null;
+
+  return (
+    <div data-testid="xy-chart-tooltip" className="rounded-lg border border-slate-600 bg-slate-950/95 px-3 py-2 text-xs text-slate-100 shadow-xl">
+      <p className="font-mono font-semibold">(x, y) = ({formatSignificant(point.x)}, {formatSignificant(point.y)}) m</p>
+    </div>
+  );
+}
+
+function TimeChartTooltip({ active, payload, metric }: { active?: boolean; payload?: readonly ChartTooltipEntry[]; metric: ChartMetric }) {
+  const point = payload?.find((entry) => entry.payload && typeof entry.payload.time === "number" && typeof entry.payload.value === "number")?.payload;
+  if (!active || !point || typeof point.time !== "number" || typeof point.value !== "number") return null;
+
+  return (
+    <div data-testid="time-chart-tooltip" className="rounded-lg border border-slate-600 bg-slate-950/95 px-3 py-2 text-xs text-slate-100 shadow-xl">
+      <p className="font-mono text-slate-300">t = {formatSignificant(point.time)} s</p>
+      <p className="mt-1 font-mono font-semibold">
+        {CHART_QUANTITIES[metric]} = {formatSignificant(point.value)} {CHART_UNITS[metric]}
+      </p>
+    </div>
+  );
+}
+
 type ContentBounds = {
   left: number;
   top: number;
@@ -181,14 +236,6 @@ function formatTime(seconds: number) {
 
 function formatPixelDistance(distance: number) {
   return distance >= 100 ? distance.toFixed(0) : distance.toFixed(1);
-}
-
-function formatNumber(value: number | undefined, digits = 3) {
-  return value === undefined || !Number.isFinite(value) ? "—" : value.toFixed(digits);
-}
-
-function formatSignificant(value: number | undefined) {
-  return value === undefined || !Number.isFinite(value) ? "—" : value.toPrecision(4);
 }
 
 function difference(
@@ -237,6 +284,8 @@ export default function Home() {
   const [scaleDraftB, setScaleDraftB] = useState<PixelPoint | null>(null);
   const [scaleLengthInput, setScaleLengthInput] = useState("");
   const [scaleCalibration, setScaleCalibration] = useState<ScaleCalibration | null>(null);
+  const [scaleNudgeEndpoint, setScaleNudgeEndpoint] = useState<ScaleEndpoint | null>(null);
+  const [scaleNudgeStep, setScaleNudgeStep] = useState<1 | 5>(1);
   const [origin, setOrigin] = useState<PixelPoint | null>(null);
   const [originNudgeStep, setOriginNudgeStep] = useState(1);
   const [axisAngleDegrees, setAxisAngleDegrees] = useState(0);
@@ -308,6 +357,9 @@ export default function Home() {
     ? Math.hypot(scaleDraftB.pixelX - scaleDraftA.pixelX, scaleDraftB.pixelY - scaleDraftA.pixelY)
     : 0;
   const scaleLine = scaleDraftA ? { pointA: scaleDraftA, pointB: scaleDraftB } : scaleCalibration;
+  const selectedScalePoint = scaleNudgeEndpoint === "A"
+    ? scaleLine?.pointA
+    : scaleNudgeEndpoint === "B" ? scaleLine?.pointB : null;
 
   const updateContentBounds = useCallback(() => {
     const video = videoRef.current;
@@ -618,6 +670,7 @@ export default function Home() {
       setScaleDraftA(null);
       setScaleDraftB(null);
       setScaleLengthInput("");
+      setScaleNudgeEndpoint(null);
     }
     if (nextMode !== "track") setIsSelectingColor(false);
     setMode(nextMode);
@@ -737,6 +790,8 @@ export default function Home() {
     const point = getPixelPointFromClient(clientX, clientY);
     if (!point) return;
 
+    setScaleNudgeEndpoint(endpoint);
+
     if (scaleDraftA) {
       if (endpoint === "A") setScaleDraftA(point);
       else if (scaleDraftB) setScaleDraftB(point);
@@ -757,10 +812,43 @@ export default function Home() {
     });
   };
 
+  const moveScalePoint = (endpoint: ScaleEndpoint, deltaX: number, deltaY: number) => {
+    if (!videoWidth || !videoHeight) return;
+    const currentPoint = endpoint === "A"
+      ? scaleDraftA ?? scaleCalibration?.pointA
+      : scaleDraftB ?? scaleCalibration?.pointB;
+    if (!currentPoint) return;
+
+    videoRef.current?.pause();
+    const point = {
+      pixelX: Math.round(Math.min(videoWidth - 1, Math.max(0, currentPoint.pixelX + deltaX))),
+      pixelY: Math.round(Math.min(videoHeight - 1, Math.max(0, currentPoint.pixelY + deltaY))),
+    };
+
+    if (scaleDraftA) {
+      if (endpoint === "A") setScaleDraftA(point);
+      else if (scaleDraftB) setScaleDraftB(point);
+    } else if (scaleCalibration) {
+      const pointA = endpoint === "A" ? point : scaleCalibration.pointA;
+      const pointB = endpoint === "B" ? point : scaleCalibration.pointB;
+      const pixelDistance = Math.hypot(pointB.pixelX - pointA.pixelX, pointB.pixelY - pointA.pixelY);
+      if (pixelDistance <= 0) return;
+      setScaleCalibration({
+        ...scaleCalibration,
+        pointA,
+        pointB,
+        pixelDistance,
+        metersPerPixel: scaleCalibration.realLengthM / pixelDistance,
+      });
+    }
+    setScaleNudgeEndpoint(endpoint);
+  };
+
   const beginScaleEndpointDrag = (endpoint: ScaleEndpoint, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (isPlaying) return;
     event.preventDefault();
     event.stopPropagation();
+    setScaleNudgeEndpoint(endpoint);
     scaleDragPointerRef.current = { pointerId: event.pointerId, endpoint };
     event.currentTarget.setPointerCapture(event.pointerId);
     updateScaleEndpointFromPointer(endpoint, event.clientX, event.clientY);
@@ -938,8 +1026,10 @@ export default function Home() {
         setScaleDraftA(point);
         setScaleDraftB(null);
         setScaleLengthInput("");
+        setScaleNudgeEndpoint("A");
       } else {
         setScaleDraftB(point);
+        setScaleNudgeEndpoint("B");
       }
       return;
     }
@@ -1195,6 +1285,7 @@ export default function Home() {
     });
     setScaleDraftA(null);
     setScaleDraftB(null);
+    setScaleNudgeEndpoint("B");
     setMode("track");
     setError("");
   };
@@ -1487,12 +1578,12 @@ export default function Home() {
                         </g>}
                       </svg>
                       {crosshairPreviewPoint && <button type="button" aria-label="拖曳以移動準星中心" title="拖曳準星中心" onPointerDown={beginCrosshairDrag} onPointerMove={moveCrosshairDrag} onPointerUp={endCrosshairDrag} onPointerCancel={endCrosshairDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent transition ${isDraggingCrosshair ? "cursor-grabbing border-cyan-100/80 bg-cyan-300/15" : "cursor-grab hover:border-cyan-100/65 hover:bg-cyan-300/10"}`} style={{ left: `${(crosshairPreviewPoint.pixelX / videoWidth) * 100}%`, top: `${(crosshairPreviewPoint.pixelY / videoHeight) * 100}%` }}><span className="sr-only">準星中心 X {crosshairPreviewPoint.pixelX}，Y {crosshairPreviewPoint.pixelY}</span></button>}
-                      {workflowStep === "calibration" && scaleLine && !isSelectingColor && autoTrackingStatus !== "running" && <><button type="button" aria-label="拖曳以移動比例尺 A 點" title="拖曳 A 點" onPointerDown={(event) => beginScaleEndpointDrag("A", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "A" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointA.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointA.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 A 點</span></button>{scaleLine.pointB && <button type="button" aria-label="拖曳以移動比例尺 B 點" title="拖曳 B 點" onPointerDown={(event) => beginScaleEndpointDrag("B", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-transparent bg-transparent transition ${draggingScaleEndpoint === "B" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : "cursor-grab hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointB.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointB.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 B 點</span></button>}</>}
+                      {workflowStep === "calibration" && scaleLine && !isSelectingColor && autoTrackingStatus !== "running" && <><button type="button" aria-label="拖曳以移動比例尺 A 點" title="拖曳 A 點" onPointerDown={(event) => beginScaleEndpointDrag("A", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} onLostPointerCapture={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 bg-transparent transition ${draggingScaleEndpoint === "A" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : scaleNudgeEndpoint === "A" ? "cursor-grab border-fuchsia-100/80 bg-fuchsia-300/15" : "cursor-grab border-transparent hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointA.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointA.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 A 點</span></button>{scaleLine.pointB && <button type="button" aria-label="拖曳以移動比例尺 B 點" title="拖曳 B 點" onPointerDown={(event) => beginScaleEndpointDrag("B", event)} onPointerMove={moveScaleEndpointDrag} onPointerUp={endScaleEndpointDrag} onPointerCancel={endScaleEndpointDrag} onLostPointerCapture={endScaleEndpointDrag} className={`absolute z-20 h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 bg-transparent transition ${draggingScaleEndpoint === "B" ? "cursor-grabbing scale-110 border-fuchsia-100 bg-fuchsia-300/20" : scaleNudgeEndpoint === "B" ? "cursor-grab border-fuchsia-100/80 bg-fuchsia-300/15" : "cursor-grab border-transparent hover:scale-110 hover:border-fuchsia-100/65 hover:bg-fuchsia-300/10"}`} style={{ left: `${(scaleLine.pointB.pixelX / videoWidth) * 100}%`, top: `${(scaleLine.pointB.pixelY / videoHeight) * 100}%` }}><span className="sr-only">比例尺 B 點</span></button>}</>}
                       {workflowStep === "calibration" && axisHandle && mode !== "scale" && !isSelectingColor && autoTrackingStatus !== "running" && <button type="button" aria-label="拖曳以旋轉座標軸" title="拖曳旋轉座標軸" onPointerDown={beginAxisDrag} onPointerMove={moveAxisDrag} onPointerUp={endAxisDrag} onPointerCancel={endAxisDrag} onLostPointerCapture={endAxisDrag} className={`absolute z-20 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 touch-none select-none items-center justify-center rounded-full border-2 border-amber-100 bg-slate-950/85 text-amber-100 shadow-[0_0_0_3px_rgba(15,23,42,0.55)] transition-[transform,background-color,color] ${isDraggingAxis ? "cursor-grabbing scale-110 bg-amber-300 text-slate-950" : "cursor-grab hover:scale-110 hover:bg-amber-300 hover:text-slate-950"}`} style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}><RotateCcw size={20} strokeWidth={2.5} /><span className="sr-only">目前角度 {axisAngleDegrees} 度</span></button>}
                       {workflowStep === "calibration" && isDraggingAxis && axisHandle && <div className="pointer-events-none absolute z-30 -translate-x-1/2 translate-y-4 rounded-md border border-amber-100/50 bg-slate-950/90 px-2 py-1 font-mono text-xs font-bold text-amber-100 shadow-lg" style={{ left: `${(axisHandle.pixelX / videoWidth) * 100}%`, top: `${(axisHandle.pixelY / videoHeight) * 100}%` }}>θ = {axisAngleDegrees.toFixed(1)}°</div>}
                     </div>
                   )}
-                  {!isPlaying && contentBounds && <div className={`pointer-events-none absolute bottom-4 left-4 z-20 inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium backdrop-blur-sm ${mode === "scale" ? "border-fuchsia-300/30 bg-fuchsia-950/70 text-fuchsia-100" : mode === "origin" ? "border-amber-300/30 bg-amber-950/70 text-amber-100" : trackingMethod === "auto" ? "border-emerald-300/30 bg-emerald-950/70 text-emerald-100" : "border-cyan-300/20 bg-slate-950/70 text-cyan-100"}`}><Crosshair size={14} />{modeInstructions[mode]}</div>}
+                  {!isPlaying && contentBounds && mode !== "scale" && <div className={`pointer-events-none absolute bottom-4 left-4 z-20 inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium backdrop-blur-sm ${mode === "origin" ? "border-amber-300/30 bg-amber-950/70 text-amber-100" : trackingMethod === "auto" ? "border-emerald-300/30 bg-emerald-950/70 text-emerald-100" : "border-cyan-300/20 bg-slate-950/70 text-cyan-100"}`}><Crosshair size={14} />{modeInstructions[mode]}</div>}
                 </div>
               ) : isDemoMode ? (
                 <div className="flex aspect-video flex-col items-center justify-center gap-5 bg-[radial-gradient(circle_at_50%_42%,#3b1a5d_0%,#171127_45%,#09121f_100%)] p-6 text-center">
@@ -1634,7 +1725,7 @@ export default function Home() {
             {workflowStep === "calibration" && <section className="rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-100"><Ruler size={18} className="text-fuchsia-300" />校正資訊</div>
               <dl className="space-y-3 text-sm">
-                <div className="flex justify-between gap-4 border-b border-slate-700/80 pb-3"><dt className="text-slate-400">比例尺</dt><dd className="text-right font-mono font-semibold text-slate-100">{scaleCalibration ? `${scaleCalibration.realLengthM.toFixed(3)} m / ${formatPixelDistance(scaleCalibration.pixelDistance)} px` : "尚未設定"}</dd></div>
+                <div className="flex justify-between gap-4 border-b border-slate-700/80 pb-3"><dt className="text-slate-400">比例尺</dt><dd className="text-right font-mono font-semibold text-slate-100">{scaleCalibration ? `${formatSignificant(scaleCalibration.realLengthM)} m / ${formatPixelDistance(scaleCalibration.pixelDistance)} px` : "尚未設定"}</dd></div>
                 <div className="flex justify-between gap-4 border-b border-slate-700/80 pb-3"><dt className="text-slate-400">原點</dt><dd className="font-mono font-semibold text-slate-100">{origin ? `(${origin.pixelX}, ${origin.pixelY})` : "尚未設定"}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-slate-400">座標軸</dt><dd className="text-right text-slate-200">x：相對向右旋轉 {axisAngleDegrees}°<br />y：與 x 軸垂直、向上為正</dd></div>
               </dl>
@@ -1666,6 +1757,38 @@ export default function Home() {
                 <button type="button" disabled={!canControl} onClick={() => { setScaleCalibration(null); setActiveMode("scale"); }} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-fuchsia-300/40 px-3 text-xs font-semibold text-fuchsia-100 transition hover:bg-fuchsia-300/10 disabled:cursor-not-allowed disabled:opacity-40"><Ruler size={15} />{scaleCalibration ? "重新設定比例尺" : "設定比例尺"}</button>
                 <button type="button" disabled={!canControl} onClick={startOriginSetup} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300/40 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-40"><MapPin size={15} />{origin ? "調整原點" : "設定原點"}</button>
               </div>
+              {mode === "scale" && <p className="mt-3 rounded-lg border border-fuchsia-300/25 bg-fuchsia-300/5 px-3 py-2 text-xs font-semibold leading-5 text-fuchsia-100" aria-live="polite">{modeInstructions.scale}</p>}
+              {scaleLine?.pointB && scaleNudgeEndpoint && selectedScalePoint && <div data-testid="scale-nudge-panel" className="mt-4 rounded-xl border border-fuchsia-300/35 bg-fuchsia-300/5 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-bold text-fuchsia-100">比例尺端點微調</p>
+                    <p className="mt-1 font-mono text-xs text-fuchsia-50" aria-live="polite">目前調整：{scaleNudgeEndpoint} 點 ({selectedScalePoint.pixelX}, {selectedScalePoint.pixelY}) px</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5" aria-label="切換比例尺端點">
+                    {(["A", "B"] as const).map((endpoint) => <button key={endpoint} type="button" onClick={() => setScaleNudgeEndpoint(endpoint)} aria-pressed={scaleNudgeEndpoint === endpoint} className={`min-h-11 min-w-11 touch-manipulation rounded-lg border px-3 text-sm font-bold transition ${scaleNudgeEndpoint === endpoint ? "border-fuchsia-100 bg-fuchsia-300 text-slate-950" : "border-slate-600 bg-slate-900/55 text-slate-200 active:bg-slate-700"}`}>{endpoint} 點</button>)}
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                  <div className="mx-auto grid w-fit grid-cols-3 gap-1.5 sm:mx-0" aria-label={`${scaleNudgeEndpoint} 點方向微調`}>
+                    <span aria-hidden="true" />
+                    <button type="button" aria-label={`${scaleNudgeEndpoint} 點向上移動 ${scaleNudgeStep} 像素`} onClick={() => moveScalePoint(scaleNudgeEndpoint, 0, -scaleNudgeStep)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-fuchsia-200/50 bg-slate-950/55 text-fuchsia-100 active:scale-95 active:bg-fuchsia-300/25"><ArrowUp size={25} strokeWidth={2.5} /></button>
+                    <span aria-hidden="true" />
+                    <button type="button" aria-label={`${scaleNudgeEndpoint} 點向左移動 ${scaleNudgeStep} 像素`} onClick={() => moveScalePoint(scaleNudgeEndpoint, -scaleNudgeStep, 0)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-fuchsia-200/50 bg-slate-950/55 text-fuchsia-100 active:scale-95 active:bg-fuchsia-300/25"><ArrowLeft size={25} strokeWidth={2.5} /></button>
+                    <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-fuchsia-300/30 bg-fuchsia-300/10 text-sm font-black text-fuchsia-100" aria-hidden="true">{scaleNudgeEndpoint}</div>
+                    <button type="button" aria-label={`${scaleNudgeEndpoint} 點向右移動 ${scaleNudgeStep} 像素`} onClick={() => moveScalePoint(scaleNudgeEndpoint, scaleNudgeStep, 0)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-fuchsia-200/50 bg-slate-950/55 text-fuchsia-100 active:scale-95 active:bg-fuchsia-300/25"><ArrowRight size={25} strokeWidth={2.5} /></button>
+                    <span aria-hidden="true" />
+                    <button type="button" aria-label={`${scaleNudgeEndpoint} 點向下移動 ${scaleNudgeStep} 像素`} onClick={() => moveScalePoint(scaleNudgeEndpoint, 0, scaleNudgeStep)} className="inline-flex h-14 w-14 touch-manipulation items-center justify-center rounded-xl border border-fuchsia-200/50 bg-slate-950/55 text-fuchsia-100 active:scale-95 active:bg-fuchsia-300/25"><ArrowDown size={25} strokeWidth={2.5} /></button>
+                    <span aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-300">每次移動</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {([1, 5] as const).map((step) => <button key={step} type="button" onClick={() => setScaleNudgeStep(step)} aria-pressed={scaleNudgeStep === step} className={`min-h-11 touch-manipulation rounded-lg border px-3 text-sm font-bold transition ${scaleNudgeStep === step ? "border-fuchsia-100 bg-fuchsia-300 text-slate-950" : "border-slate-600 bg-slate-900/55 text-slate-200 active:bg-slate-700"}`}>{step} px</button>)}
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-400">{scaleCalibration ? "已套用比例尺；每次微調都會立即更新物理座標、圖表與擬合。" : "完成微調後，輸入實際長度並套用比例尺。"}</p>
+                  </div>
+                </div>
+              </div>}
               {origin && mode === "origin" && <div className="mt-4 rounded-xl border border-amber-300/35 bg-amber-300/5 p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
@@ -1723,7 +1846,7 @@ export default function Home() {
                 const isPendingDelete = pendingDeleteFrame === point.frame;
                 return <article key={point.frame} className={`overflow-hidden rounded-xl border transition ${isSelected ? "border-cyan-300/70 bg-cyan-300/10" : point.frame === currentFrame ? "border-cyan-300/35 bg-cyan-300/5" : "border-slate-700 bg-slate-950/25"}`}>
                   <button type="button" onClick={() => toggleTrackingPointSelection(point.frame)} aria-expanded={isSelected} className="flex min-h-20 w-full touch-manipulation items-start justify-between gap-3 px-3 py-3 text-left transition hover:bg-slate-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70">
-                    <div className="min-w-0"><p className="font-mono text-base font-bold text-white">Frame {point.frame}<span className="ml-3 text-sm font-medium text-slate-300">t = {(point.frame / activeFps).toFixed(3)} s</span></p><p className="mt-2 font-mono text-sm text-slate-200">X = {point.pixelX}<span className="ml-4">Y = {point.pixelY}</span></p></div>
+                    <div className="min-w-0"><p className="font-mono text-base font-bold text-white">Frame {point.frame}<span className="ml-3 text-sm font-medium text-slate-300">t = {formatSignificant(point.frame / activeFps)} s</span></p><p className="mt-2 font-mono text-sm text-slate-200">X = {point.pixelX}<span className="ml-4">Y = {point.pixelY}</span></p></div>
                     <span className={`shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold ${isLowConfidence ? "bg-amber-300/15 text-amber-100" : point.trackingMethod === "auto" ? "bg-emerald-300/15 text-emerald-100" : "bg-slate-800 text-slate-300"}`}>{point.trackingMethod === "auto" ? `Confidence ${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "手動"}</span>
                   </button>
                   {isSelected && <div className="border-t border-cyan-300/25 bg-slate-950/35 px-3 py-3"><p className="text-sm font-semibold text-cyan-100">已選擇 Frame {point.frame}</p>{isPendingDelete ? <div className="mt-3 rounded-lg border border-rose-400/35 bg-rose-400/10 p-3"><p className="text-sm font-semibold text-rose-100">確定要刪除 Frame {point.frame} 的追蹤點嗎？</p><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" onClick={() => setPendingDeleteFrame(null)} className="min-h-11 rounded-lg border border-slate-600 px-3 text-sm font-bold text-slate-100 transition hover:bg-slate-800">取消</button><button type="button" onClick={confirmDeleteTrackingPoint} className="min-h-11 rounded-lg bg-rose-300 px-3 text-sm font-bold text-slate-950 transition hover:bg-rose-200">刪除</button></div></div> : <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正此點</button><button type="button" onClick={() => setPendingDeleteFrame(point.frame)} className="min-h-11 rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除此點</button></div>}</div>}
@@ -1734,7 +1857,7 @@ export default function Home() {
             {workflowStep === "tracking" && <section className="hidden rounded-2xl border border-slate-700 bg-[#0c1b2c] p-5">
               <div className="mb-4 flex items-center justify-between gap-3"><div className="flex items-center gap-2 text-sm font-semibold text-slate-100"><Crosshair size={18} className="text-cyan-300" />追蹤資料</div><span className="rounded-md bg-slate-800 px-2 py-1 text-xs font-mono text-slate-300">{trackingPoints.length} 點</span></div>
               <div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={clearTrackingPoints} disabled={trackingPoints.length === 0} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rose-400/40 px-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-400/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 size={16} />清除全部點位</button></div>
-              {sortedPoints.length > 0 ? <><div className="space-y-3 sm:hidden">{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <article key={point.frame} className={`rounded-xl border p-3 ${point.frame === currentFrame ? "border-cyan-300/50 bg-cyan-300/10" : "border-slate-700 bg-slate-950/25"}`}><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-base font-bold text-white">Frame {point.frame}</p><p className="mt-1 font-mono text-xs text-slate-400">Time {(point.frame / activeFps).toFixed(3)} s</p></div><span className={`rounded-md px-2 py-1 font-mono text-xs font-semibold ${isLowConfidence ? "bg-amber-300/15 text-amber-100" : point.trackingMethod === "auto" ? "bg-emerald-300/15 text-emerald-100" : "bg-slate-800 text-slate-300"}`}>{point.trackingMethod === "auto" ? `信心 ${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "手動"}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt className="text-xs text-slate-500">Pixel X</dt><dd className="font-mono text-slate-100">{point.pixelX}</dd></div><div><dt className="text-xs text-slate-500">Pixel Y</dt><dd className="font-mono text-slate-100">{point.pixelY}</dd></div></dl><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></div></article>; })}</div><div className="hidden max-h-72 overflow-auto rounded-lg border border-slate-700 sm:block"><table className="w-full min-w-[660px] border-collapse text-left text-xs"><thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-2.5 py-2 font-semibold">Frame</th><th className="px-2.5 py-2 font-semibold">Time (s)</th><th className="px-2.5 py-2 font-semibold">Pixel X</th><th className="px-2.5 py-2 font-semibold">Pixel Y</th><th className="px-2.5 py-2 font-semibold">Confidence</th><th className="px-2.5 py-2 font-semibold">修正</th><th className="px-2.5 py-2 font-semibold">刪除</th></tr></thead><tbody>{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-2.5 py-2 font-mono text-slate-100">{point.frame}</td><td className="px-2.5 py-2 font-mono text-slate-300">{(point.frame / activeFps).toFixed(3)}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelX}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelY}</td><td className={`px-2.5 py-2 font-mono font-semibold ${isLowConfidence ? "text-amber-200" : point.trackingMethod === "auto" ? "text-emerald-200" : "text-slate-400"}`}>{point.trackingMethod === "auto" ? `${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "—"}</td><td className="px-2.5 py-2"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 whitespace-nowrap rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button></td><td className="px-2.5 py-2"><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 whitespace-nowrap rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></td></tr>; })}</tbody></table></div></> : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-center text-xs leading-5 text-slate-400">暫停影片後，點選物體以移動準星，再按「記錄準星位置」。</p>}
+              {sortedPoints.length > 0 ? <><div className="space-y-3 sm:hidden">{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <article key={point.frame} className={`rounded-xl border p-3 ${point.frame === currentFrame ? "border-cyan-300/50 bg-cyan-300/10" : "border-slate-700 bg-slate-950/25"}`}><div className="flex items-start justify-between gap-3"><div><p className="font-mono text-base font-bold text-white">Frame {point.frame}</p><p className="mt-1 font-mono text-xs text-slate-400">Time {formatSignificant(point.frame / activeFps)} s</p></div><span className={`rounded-md px-2 py-1 font-mono text-xs font-semibold ${isLowConfidence ? "bg-amber-300/15 text-amber-100" : point.trackingMethod === "auto" ? "bg-emerald-300/15 text-emerald-100" : "bg-slate-800 text-slate-300"}`}>{point.trackingMethod === "auto" ? `信心 ${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "手動"}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt className="text-xs text-slate-500">Pixel X</dt><dd className="font-mono text-slate-100">{point.pixelX}</dd></div><div><dt className="text-xs text-slate-500">Pixel Y</dt><dd className="font-mono text-slate-100">{point.pixelY}</dd></div></dl><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></div></article>; })}</div><div className="hidden max-h-72 overflow-auto rounded-lg border border-slate-700 sm:block"><table className="w-full min-w-[660px] border-collapse text-left text-xs"><thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-2.5 py-2 font-semibold">Frame</th><th className="px-2.5 py-2 font-semibold">Time (s)</th><th className="px-2.5 py-2 font-semibold">Pixel X</th><th className="px-2.5 py-2 font-semibold">Pixel Y</th><th className="px-2.5 py-2 font-semibold">Confidence</th><th className="px-2.5 py-2 font-semibold">修正</th><th className="px-2.5 py-2 font-semibold">刪除</th></tr></thead><tbody>{sortedPoints.map((point) => { const isLowConfidence = point.trackingMethod === "auto" && (point.trackingConfidence ?? 1) < 0.55; return <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-2.5 py-2 font-mono text-slate-100">{point.frame}</td><td className="px-2.5 py-2 font-mono text-slate-300">{formatSignificant(point.frame / activeFps)}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelX}</td><td className="px-2.5 py-2 font-mono text-slate-300">{point.pixelY}</td><td className={`px-2.5 py-2 font-mono font-semibold ${isLowConfidence ? "text-amber-200" : point.trackingMethod === "auto" ? "text-emerald-200" : "text-slate-400"}`}>{point.trackingMethod === "auto" ? `${(point.trackingConfidence ?? 0).toFixed(2)}${isLowConfidence ? " ⚠" : ""}` : "—"}</td><td className="px-2.5 py-2"><button type="button" disabled={!canControl} onClick={() => beginEditingTrackingPoint(point)} className="min-h-11 whitespace-nowrap rounded-lg border border-cyan-300/45 px-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40">修正</button></td><td className="px-2.5 py-2"><button type="button" onClick={() => deleteTrackingPoint(point.frame)} className="min-h-11 whitespace-nowrap rounded-lg border border-rose-400/45 px-3 text-sm font-bold text-rose-200 transition hover:bg-rose-400/10">刪除</button></td></tr>; })}</tbody></table></div></> : <p className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-center text-xs leading-5 text-slate-400">暫停影片後，點選物體以移動準星，再按「記錄準星位置」。</p>}
             </section>}
             <div className="mt-auto flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-[#0c1b2c] p-4">
               <button type="button" disabled={workflowIndex === 0} onClick={() => goToWorkflowStep(workflowOrder[workflowIndex - 1])} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-slate-600 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft size={17} />上一步</button>
@@ -1771,7 +1894,7 @@ export default function Home() {
                 <div className="mt-5 overflow-auto rounded-xl border border-slate-700">
                   <table className="w-full min-w-[980px] border-collapse text-left text-xs">
                     <thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-3 py-2.5 font-semibold">Frame</th><th className="px-3 py-2.5 font-semibold">Time (s)</th><th className="px-3 py-2.5 font-semibold">X (m)</th><th className="px-3 py-2.5 font-semibold">Y (m)</th><th className="px-3 py-2.5 font-semibold">Vx (m/s)</th><th className="px-3 py-2.5 font-semibold">Vy (m/s)</th><th className="px-3 py-2.5 font-semibold">Speed (m/s)</th><th className="px-3 py-2.5 font-semibold">Ax (m/s²)</th><th className="px-3 py-2.5 font-semibold">Ay (m/s²)</th><th className="px-3 py-2.5 font-semibold">|a| (m/s²)</th></tr></thead>
-                    <tbody>{analysisPoints.length > 0 ? analysisPoints.map((point) => <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-3 py-2.5 font-mono text-slate-100">{point.frame}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.time)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.x)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.y)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.vx)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.vy)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.speed)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.ax)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.ay)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatNumber(point.acceleration)}</td></tr>) : <tr><td colSpan={10} className="px-4 py-6 text-center text-sm text-slate-400">尚無追蹤資料。</td></tr>}</tbody>
+                    <tbody>{analysisPoints.length > 0 ? analysisPoints.map((point) => <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-3 py-2.5 font-mono text-slate-100">{point.frame}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.time)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.x)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.y)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.vx)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.vy)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.speed)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.ax)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.ay)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.acceleration)}</td></tr>) : <tr><td colSpan={10} className="px-4 py-6 text-center text-sm text-slate-400">尚無追蹤資料。</td></tr>}</tbody>
                   </table>
                 </div>
 
@@ -1784,7 +1907,26 @@ export default function Home() {
                   <div className="mt-3 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
                     <div ref={fitPanelContainerRef} className="relative min-w-0">
                       <div className="h-80">
-                      {(chartMetric === "xy" ? xyData.length > 0 : chartData.length > 0) ? <ResponsiveContainer width="100%" height="100%"><ComposedChart data={activeChartData} margin={{ top: 16, right: 22, bottom: 26, left: 20 }}><CartesianGrid stroke="#334155" strokeDasharray="4 4" />{chartMetric === "xy" ? <><XAxis type="number" dataKey="x" name="x" unit=" m" domain={xyDomain} stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: "x (m)", position: "insideBottom", offset: -10, fill: "#cbd5e1", fontSize: 12 }} /><YAxis type="number" dataKey="y" name="y" unit=" m" domain={xyDomain} stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: "y (m)", angle: -90, position: "insideLeft", offset: -6, fill: "#cbd5e1", fontSize: 12 }} /><Tooltip cursor={{ strokeDasharray: "4 4", stroke: "#94a3b8" }} contentStyle={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 8, color: "#f8fafc" }} /><Scatter name="位置點" data={xyChartPoints} shape="circle">{xyChartPoints.map((point) => <Cell key={`${point.frame}-${point.x}`} fill={point.inFitRange ? "#22d3ee" : "#64748b"} opacity={point.inFitRange ? 1 : 0.55} />)}</Scatter>{fitCurvePoints.length > 0 && <Line name="擬合曲線" data={fitCurvePoints.map((point) => ({ x: point.time, y: point.fit }))} dataKey="y" type="monotone" stroke="#f8fafc" strokeWidth={2.5} dot={false} isAnimationActive={false} />}</> : <><XAxis type="number" dataKey="time" name="Time" unit=" s" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: "Time (s)", position: "insideBottom", offset: -10, fill: "#cbd5e1", fontSize: 12 }} /><YAxis type="number" dataKey="value" name={selectedChart.axisLabel} stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: selectedChart.axisLabel, angle: -90, position: "insideLeft", offset: -6, fill: "#cbd5e1", fontSize: 12 }} /><Tooltip cursor={{ strokeDasharray: "4 4", stroke: "#94a3b8" }} contentStyle={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 8, color: "#f8fafc" }} labelStyle={{ color: "#cbd5e1" }} /><Scatter name="量測點" data={chartData} shape="circle">{chartData.map((point) => <Cell key={`${point.frame}-${point.time}`} fill={point.inFitRange ? selectedChart.color : "#64748b"} opacity={point.inFitRange ? 1 : 0.55} />)}</Scatter>{fitCurvePoints.length > 0 && <Line name="擬合曲線" data={fitCurvePoints} dataKey="fit" type="monotone" stroke="#f8fafc" strokeWidth={2.5} dot={false} isAnimationActive={false} />}</>}</ComposedChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-700 text-center text-sm text-slate-400">此物理量目前沒有足夠的有效資料可繪圖。</div>}
+                      {(chartMetric === "xy" ? xyData.length > 0 : chartData.length > 0) ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={activeChartData} margin={{ top: 16, right: 22, bottom: 26, left: 20 }}>
+                            <CartesianGrid stroke="#334155" strokeDasharray="4 4" />
+                            {chartMetric === "xy" ? <>
+                              <XAxis type="number" dataKey="x" name="x" unit=" m" domain={xyDomain} stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} tickFormatter={(value) => formatSignificant(Number(value))} label={{ value: "x (m)", position: "insideBottom", offset: -10, fill: "#cbd5e1", fontSize: 12 }} />
+                              <YAxis type="number" dataKey="y" name="y" unit=" m" domain={xyDomain} stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} tickFormatter={(value) => formatSignificant(Number(value))} label={{ value: "y (m)", angle: -90, position: "insideLeft", offset: -6, fill: "#cbd5e1", fontSize: 12 }} />
+                              <Tooltip cursor={{ strokeDasharray: "4 4", stroke: "#94a3b8" }} content={({ active, payload }) => <XyChartTooltip active={active} payload={payload as readonly ChartTooltipEntry[] | undefined} />} />
+                              <Scatter name="位置點" data={xyChartPoints} shape="circle">{xyChartPoints.map((point) => <Cell key={`${point.frame}-${point.x}`} fill={point.inFitRange ? "#22d3ee" : "#64748b"} opacity={point.inFitRange ? 1 : 0.55} />)}</Scatter>
+                              {fitCurvePoints.length > 0 && <Line name="擬合曲線" data={fitCurvePoints.map((point) => ({ x: point.time, y: point.fit }))} dataKey="y" type="monotone" stroke="#f8fafc" strokeWidth={2.5} dot={false} isAnimationActive={false} />}
+                            </> : <>
+                              <XAxis type="number" dataKey="time" name="Time" unit=" s" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} tickFormatter={(value) => formatSignificant(Number(value))} label={{ value: "Time (s)", position: "insideBottom", offset: -10, fill: "#cbd5e1", fontSize: 12 }} />
+                              <YAxis type="number" dataKey="value" name={selectedChart.axisLabel} stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} tickFormatter={(value) => formatSignificant(Number(value))} label={{ value: selectedChart.axisLabel, angle: -90, position: "insideLeft", offset: -6, fill: "#cbd5e1", fontSize: 12 }} />
+                              <Tooltip cursor={{ strokeDasharray: "4 4", stroke: "#94a3b8" }} content={({ active, payload }) => <TimeChartTooltip active={active} payload={payload as readonly ChartTooltipEntry[] | undefined} metric={chartMetric} />} />
+                              <Scatter name="量測點" data={chartData} shape="circle">{chartData.map((point) => <Cell key={`${point.frame}-${point.time}`} fill={point.inFitRange ? selectedChart.color : "#64748b"} opacity={point.inFitRange ? 1 : 0.55} />)}</Scatter>
+                              {fitCurvePoints.length > 0 && <Line name="擬合曲線" data={fitCurvePoints} dataKey="fit" type="monotone" stroke="#f8fafc" strokeWidth={2.5} dot={false} isAnimationActive={false} />}
+                            </>}
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      ) : <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-700 text-center text-sm text-slate-400">此物理量目前沒有足夠的有效資料可繪圖。</div>}
                       </div>
                       {fitModel !== "none" && isFitPanelVisible && <FloatingFitResultPanel containerRef={fitPanelContainerRef} position={fitPanelPosition} onPositionChange={setFitPanelPosition} collapsed={isFitPanelCollapsed} onCollapsedChange={setIsFitPanelCollapsed} onClose={() => setIsFitPanelVisible(false)}>{fitError ? <p className="text-amber-100">{fitError}</p> : fitResult && fitResult.ok ? <><p className="font-semibold text-fuchsia-100">{fitModelLabel[fitResult.model]}</p>{fitInputRange && <p className="text-slate-300">{fitIndependentVariable} 範圍：<span className="font-mono">{formatSignificant(fitInputRange.minimum)} – {formatSignificant(fitInputRange.maximum)} {fitIndependentUnit}</span></p>}<p className="text-slate-300">{fitFrameRange}</p><p className="mt-1 break-words font-mono font-semibold text-white">{fitEquation}</p><div className="mt-1 grid grid-cols-2 gap-x-4">{Object.entries(fitResult.coefficients).map(([name, value]) => <p key={name}><span className="text-slate-400">{name === "omega" ? "ω" : name === "phi" ? "φ" : name}：</span><span className="font-mono text-white">{formatSignificant(value)}</span></p>)}<p><span className="text-slate-400">r：</span><span className="font-mono text-white">{formatSignificant(fitResult.correlation)}</span></p><p><span className="text-slate-400">R²：</span><span className="font-mono text-white">{formatSignificant(fitResult.rSquared)}</span></p><p className="col-span-2"><span className="text-slate-400">均方根誤差：</span><span className="font-mono text-white">{formatSignificant(fitResult.rmse)}</span></p><p className="col-span-2"><span className="text-slate-400">n：</span><span className="font-mono text-white">{fitResult.n}</span></p></div>{fitResult.model === "quadratic" && chartMetric === "y" && <p className="mt-1 border-t border-amber-300/20 pt-1 text-amber-100">a_y = 2A = <span className="font-mono font-bold">{formatSignificant(2 * fitResult.coefficients.A)} m/s²</span></p>}{fitResult.model === "linear" && chartMetric === "x" && <p className="mt-1 border-t border-cyan-300/20 pt-1 text-cyan-100">v_x = slope = <span className="font-mono font-bold">{formatSignificant(fitResult.coefficients.m)} m/s</span></p>}{fitResult.model === "linear" && (chartMetric === "vx" || chartMetric === "vy") && <p className="mt-1 border-t border-cyan-300/20 pt-1 text-cyan-100">a_{chartMetric === "vx" ? "x" : "y"} = slope = <span className="font-mono font-bold">{formatSignificant(fitResult.coefficients.m)} m/s²</span></p>}</> : <p className="text-slate-300">請選擇適用的擬合模式。</p>}</FloatingFitResultPanel>}
                       <div className="mt-3"><h2 className="text-base font-semibold text-white">圖表分析：{selectedChart.label}</h2><p className="mt-1 text-xs leading-5 text-slate-400">散點代表量測影格，亮色點納入擬合，灰色點保留作為範圍外的參考。</p></div>
