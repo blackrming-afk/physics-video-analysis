@@ -1887,7 +1887,9 @@ export default function Home() {
               <button type="button" onClick={exportCsv} disabled={!hasPhysicalCoordinates || analysisPoints.length === 0} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-300/40 px-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-40"><Download size={17} />匯出全部數據 CSV（Excel）</button>
             </div>
 
-            <p className="mt-3 text-xs leading-5 text-slate-400">可下載所有追蹤點的時間、座標、速度、加速度與追蹤資訊；依目前選取的原始／平滑模式匯出 CSV，能以 Excel 或 Google 試算表開啟並上傳 Padlet。</p>\n\n            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="mt-3 text-xs leading-5 text-slate-400">可下載所有追蹤點的時間、座標、速度、加速度與追蹤資訊；依目前選取的原始／平滑模式匯出 CSV，能以 Excel 或 Google 試算表開啟並上傳 Padlet。</p>
+
+            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="mr-1 text-sm font-semibold text-slate-200">分析資料</span>
                 <button type="button" onClick={() => setAnalysisMode("raw")} className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${analysisMode === "raw" ? "bg-cyan-300 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>原始資料</button>
