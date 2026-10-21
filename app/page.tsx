@@ -1425,30 +1425,42 @@ export default function Home() {
 
   const exportCsv = () => {
     if (!hasPhysicalCoordinates || analysisPoints.length === 0) return;
-    const headers = ["frame", "time", "x", "y", "vx", "vy", "speed", "ax", "ay", "acceleration", "pixelX", "pixelY", "trackingMethod", "trackingConfidence"];
-    const lines = analysisPoints.map((point) => [
-      point.frame,
-      point.time,
-      point.x,
-      point.y,
-      point.vx ?? "",
-      point.vy ?? "",
-      point.speed ?? "",
-      point.ax ?? "",
-      point.ay ?? "",
-      point.acceleration ?? "",
-      point.pixelX,
-      point.pixelY,
-      point.trackingMethod ?? "manual",
-      point.trackingConfidence ?? "",
-    ].join(","));
-    const blob = new Blob([`\uFEFF${headers.join(",")}\n${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+
+    // CSV with a UTF-8 BOM opens with Traditional Chinese headers in Excel.
+    // Empty calculated values stay empty, rather than being misreported as zero.
+    const headers = [
+      "影格 frame", "時間 t (s)", "X (m)", "Y (m)",
+      "Vx (m/s)", "Vy (m/s)", "速率 speed (m/s)",
+      "Ax (m/s²)", "Ay (m/s²)", "加速度大小 (m/s²)",
+      "pixelX (px)", "pixelY (px)", "追蹤方式", "追蹤信心值",
+    ];
+    const csvCell = (value: string | number | undefined) => {
+      if (value === undefined || value === "" || (typeof value === "number" && !Number.isFinite(value))) return "";
+      const content = String(value);
+      return /[",\r\n]/.test(content) ? `"${content.replaceAll('"', '""')}"` : content;
+    };
+    const rows = analysisPoints.map((point) => [
+      point.frame, point.time, point.x, point.y,
+      point.vx, point.vy, point.speed,
+      point.ax, point.ay, point.acceleration,
+      point.pixelX, point.pixelY,
+      point.trackingMethod ?? "manual", point.trackingConfidence,
+    ].map(csvCell).join(","));
+    const csv = "\uFEFF" + [headers.map(csvCell).join(","), ...rows].join("\r\n") + "\r\n";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+    const stem = (fileName || "physics-video-analysis")
+      .replace(/\.[^.]+$/, "")
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+      .trim()
+      .slice(0, 70) || "physics-video-analysis";
     link.href = url;
-    link.download = "physics-video-analysis.csv";
+    link.download = `${stem}_${analysisMode === "smooth" ? "smoothed" : "raw"}.csv`;
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const modeInstructions: Record<InteractionMode, string> = {
@@ -1872,10 +1884,10 @@ export default function Home() {
                 <div className="flex items-center gap-2 text-lg font-semibold text-white"><MoveRight size={20} className="text-emerald-300" />運動分析</div>
                 <p className="mt-1 text-sm text-slate-400">分析時間以最早追蹤點為 t = 0；所有差分都採用實際影格間的時間差。</p>
               </div>
-              <button type="button" onClick={exportCsv} disabled={!hasPhysicalCoordinates || analysisPoints.length === 0} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-300/40 px-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-40"><Download size={17} />匯出 CSV</button>
+              <button type="button" onClick={exportCsv} disabled={!hasPhysicalCoordinates || analysisPoints.length === 0} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-300/40 px-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-40"><Download size={17} />匯出全部數據 CSV（Excel）</button>
             </div>
 
-            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="mt-3 text-xs leading-5 text-slate-400">可下載所有追蹤點的時間、座標、速度、加速度與追蹤資訊；依目前選取的原始／平滑模式匯出 CSV，能以 Excel 或 Google 試算表開啟並上傳 Padlet。</p>\n\n            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="mr-1 text-sm font-semibold text-slate-200">分析資料</span>
                 <button type="button" onClick={() => setAnalysisMode("raw")} className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${analysisMode === "raw" ? "bg-cyan-300 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>原始資料</button>
