@@ -36,6 +36,7 @@ import {
 } from "recharts";
 import { fitData, type FitModel, type FitResult } from "@/lib/curve-fitting";
 import { formatSignificant } from "@/lib/number-format";
+import { ComparisonPanel, type ComparisonDataset } from "@/components/ComparisonPanel";
 import { analysisTimeFromFrame, firstTrackedFrame } from "@/lib/analysis-time";
 import { FloatingFitResultPanel } from "@/components/FloatingFitResultPanel";
 import { StepNavigation, type WorkflowStep } from "@/components/StepNavigation";
@@ -295,6 +296,8 @@ export default function Home() {
   const [chartMetric, setChartMetric] = useState<ChartMetric>("x");
   const [equalAxisScale, setEqualAxisScale] = useState(false);
   const [fitModel, setFitModel] = useState<FitModel>("none");
+  const [comparisonDatasets, setComparisonDatasets] = useState<ComparisonDataset[]>([]);
+  const [comparisonLabel, setComparisonLabel] = useState("");
   const [fitStartFrame, setFitStartFrame] = useState("");
   const [fitEndFrame, setFitEndFrame] = useState("");
   const [fitPanelPosition, setFitPanelPosition] = useState({ x: 12, y: 12 });
@@ -1423,6 +1426,31 @@ export default function Home() {
     }
     : null;
 
+  const addCurrentToComparison = () => {
+    if (!hasPhysicalCoordinates || analysisPoints.length === 0) return;
+    const fallbackLabel = (fileName || `資料 ${comparisonDatasets.length + 1}`).replace(/\.[^.]+$/, "") || `資料 ${comparisonDatasets.length + 1}`;
+    const label = comparisonLabel.trim() || fallbackLabel;
+    const snapshot: ComparisonDataset = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      label,
+      createdAt: Date.now(),
+      fps: activeFps,
+      points: analysisPoints.map((point) => ({
+        frame: point.frame,
+        time: point.time,
+        x: point.x,
+        y: point.y,
+        vx: point.vx,
+        vy: point.vy,
+        speed: point.speed,
+        ax: point.ax,
+        ay: point.ay,
+      })),
+    };
+    setComparisonDatasets((items) => [...items, snapshot].slice(-12));
+    setComparisonLabel("");
+  };
+
   const exportCsv = () => {
     if (!hasPhysicalCoordinates || analysisPoints.length === 0) return;
 
@@ -1898,6 +1926,32 @@ export default function Home() {
               <span className={`inline-flex w-fit items-center rounded-full px-3 py-1.5 text-xs font-semibold ${analysisMode === "smooth" ? "bg-emerald-300/15 text-emerald-100" : "bg-cyan-300/15 text-cyan-100"}`}>{analysisMode === "smooth" ? "目前使用平滑資料（3 點移動平均）" : "目前使用原始資料"}</span>
             </div>
 
+            <div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-300/5 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="min-w-0 flex-1 text-xs font-semibold text-slate-300">
+                  比較資料名稱
+                  <input
+                    type="text"
+                    value={comparisonLabel}
+                    onChange={(event) => setComparisonLabel(event.target.value)}
+                    placeholder={fileName ? fileName.replace(/\.[^.]+$/, "") : `例如：50 g、100 g、200 g`}
+                    className="mt-1 min-h-11 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 text-base text-white outline-none focus:border-cyan-300 sm:text-sm"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={addCurrentToComparison}
+                  disabled={!hasPhysicalCoordinates || analysisPoints.length === 0}
+                  className="min-h-11 rounded-lg bg-cyan-300 px-4 text-sm font-bold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  加入比較
+                </button>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-400">
+                已儲存 {comparisonDatasets.length} 組比較資料。加入後會建立獨立快照，載入下一支影片不會改動已儲存資料。
+              </p>
+            </div>
+
             {!hasPhysicalCoordinates ? (
               <p className="mt-5 rounded-xl border border-amber-300/25 bg-amber-300/5 px-4 py-3 text-sm leading-6 text-amber-100">尚未設定{missingSetup}，位置、速度與加速度分析尚未啟用。</p>
             ) : (
@@ -1962,6 +2016,8 @@ export default function Home() {
                     {fitModel === "none" ? <p className="mt-2 text-sm text-slate-400">選擇擬合模式以分析目前圖表與指定 frame 範圍。</p> : fitError ? <p className="mt-2 text-sm leading-6 text-amber-100">{fitError}</p> : fitResult && fitResult.ok ? <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4"><div><p className="text-xs text-slate-400">圖表種類</p><p className="mt-1 font-semibold text-white">{selectedChart.label}</p></div><div><p className="text-xs text-slate-400">擬合模型／範圍</p><p className="mt-1 font-semibold text-white">{fitModelLabel[fitResult.model]} · {fitFrameRange}</p></div><div className="sm:col-span-2"><p className="text-xs text-slate-400">方程式</p><p className="mt-1 break-words font-mono font-semibold text-fuchsia-100">{fitEquation}</p></div>{Object.entries(fitResult.coefficients).map(([name, value]) => <div key={name}><p className="text-xs text-slate-400">{name === "omega" ? "ω" : name === "phi" ? "φ" : name}</p><p className="mt-1 font-mono text-white">{formatSignificant(value)}</p></div>)}<div><p className="text-xs text-slate-400">R²</p><p className="mt-1 font-mono text-white">{formatSignificant(fitResult.rSquared)}</p></div><div><p className="text-xs text-slate-400">Pearson r</p><p className="mt-1 font-mono text-white">{formatSignificant(fitResult.correlation)}</p></div><div><p className="text-xs text-slate-400">RMSE</p><p className="mt-1 font-mono text-white">{formatSignificant(fitResult.rmse)}</p></div><div><p className="text-xs text-slate-400">使用資料點 n</p><p className="mt-1 font-mono text-white">{fitResult.n}</p></div><div className="sm:col-span-2"><p className="text-xs text-slate-400">Frame 範圍</p><p className="mt-1 font-mono text-white">{fitFrameRange}</p></div>{fitResult.model === "quadratic" && chartMetric === "y" && <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2"><p className="text-xs leading-5 text-amber-100">由二次項推得的加速度：a_y = 2A = <span className="font-mono font-bold">{formatSignificant(2 * fitResult.coefficients.A)} m/s²</span><br />若 y 軸向上為正，估計重力加速度大小 g = |2A| = <span className="font-mono font-bold">{formatSignificant(Math.abs(2 * fitResult.coefficients.A))} m/s²</span></p></div>}{fitResult.model === "linear" && chartMetric === "x" && <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-3 py-2 text-xs leading-5 text-cyan-100">等速度運動輔助量：v_x = slope = <span className="font-mono font-bold">{formatSignificant(fitResult.coefficients.m)} m/s</span></div>}{fitResult.model === "linear" && (chartMetric === "vx" || chartMetric === "vy") && <div className="sm:col-span-2 xl:col-span-4 rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-3 py-2 text-xs leading-5 text-cyan-100">等加速度運動輔助量：a_{chartMetric === "vx" ? "x" : "y"} = slope = <span className="font-mono font-bold">{formatSignificant(fitResult.coefficients.m)} m/s²</span></div>}</div> : <p className="mt-2 text-sm text-slate-400">請選擇擬合模式。</p>}
                   </details>
                 </div>
+
+                <ComparisonPanel datasets={comparisonDatasets} setDatasets={setComparisonDatasets} />
               </>
             )}
           </section>}
