@@ -174,7 +174,7 @@ const CHART_QUANTITIES: Record<ChartMetric, string> = {
   y: "y",
   vx: "vₓ",
   vy: "vᵧ",
-  speed: "speed",
+  speed: "V",
   ax: "aₓ",
   ay: "aᵧ",
 };
@@ -1349,9 +1349,9 @@ export default function Home() {
     { id: "y", label: "y-t", axisLabel: "y (m)", color: "#a78bfa" },
     { id: "vx", label: "Vx-t", axisLabel: "Vx (m/s)", color: "#38bdf8" },
     { id: "vy", label: "Vy-t", axisLabel: "Vy (m/s)", color: "#c084fc" },
-    { id: "speed", label: "speed-t", axisLabel: "Speed (m/s)", color: "#34d399" },
-    { id: "ax", label: "ax-t", axisLabel: "Ax (m/s²)", color: "#fbbf24" },
-    { id: "ay", label: "ay-t", axisLabel: "Ay (m/s²)", color: "#fb7185" },
+    { id: "speed", label: "V-t", axisLabel: "V (m/s)", color: "#34d399" },
+    { id: "ax", label: "aₓ-t", axisLabel: "aₓ (m/s²)", color: "#fbbf24" },
+    { id: "ay", label: "aᵧ-t", axisLabel: "aᵧ (m/s²)", color: "#fb7185" },
   ];
   const selectedChart = chartOptions.find((option) => option.id === chartMetric) ?? chartOptions[0];
   const parsedFitStart = fitStartFrame.trim() === "" ? undefined : Number(fitStartFrame);
@@ -1458,8 +1458,8 @@ export default function Home() {
     // Empty calculated values stay empty, rather than being misreported as zero.
     const headers = [
       "影格 frame", "時間 t (s)", "X (m)", "Y (m)",
-      "Vx (m/s)", "Vy (m/s)", "速率 speed (m/s)",
-      "Ax (m/s²)", "Ay (m/s²)", "加速度大小 (m/s²)",
+      "Vx (m/s)", "Vy (m/s)", "V (m/s)",
+      "aₓ (m/s²)", "aᵧ (m/s²)", "a (m/s²)",
       "pixelX (px)", "pixelY (px)", "追蹤方式", "追蹤信心值",
     ];
     const csvCell = (value: string | number | undefined) => {
@@ -1961,7 +1961,7 @@ export default function Home() {
 
                 <div className="mt-5 overflow-auto rounded-xl border border-slate-700">
                   <table className="w-full min-w-[980px] border-collapse text-left text-xs">
-                    <thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-3 py-2.5 font-semibold">Frame</th><th className="px-3 py-2.5 font-semibold">Time (s)</th><th className="px-3 py-2.5 font-semibold">X (m)</th><th className="px-3 py-2.5 font-semibold">Y (m)</th><th className="px-3 py-2.5 font-semibold">Vx (m/s)</th><th className="px-3 py-2.5 font-semibold">Vy (m/s)</th><th className="px-3 py-2.5 font-semibold">Speed (m/s)</th><th className="px-3 py-2.5 font-semibold">Ax (m/s²)</th><th className="px-3 py-2.5 font-semibold">Ay (m/s²)</th><th className="px-3 py-2.5 font-semibold">|a| (m/s²)</th></tr></thead>
+                    <thead className="sticky top-0 bg-slate-800 text-slate-300"><tr><th className="px-3 py-2.5 font-semibold">Frame</th><th className="px-3 py-2.5 font-semibold">Time (s)</th><th className="px-3 py-2.5 font-semibold">X (m)</th><th className="px-3 py-2.5 font-semibold">Y (m)</th><th className="px-3 py-2.5 font-semibold">Vx (m/s)</th><th className="px-3 py-2.5 font-semibold">Vy (m/s)</th><th className="px-3 py-2.5 font-semibold">V (m/s)</th><th className="px-3 py-2.5 font-semibold">aₓ (m/s²)</th><th className="px-3 py-2.5 font-semibold">aᵧ (m/s²)</th><th className="px-3 py-2.5 font-semibold">a (m/s²)</th></tr></thead>
                     <tbody>{analysisPoints.length > 0 ? analysisPoints.map((point) => <tr key={point.frame} className={point.frame === currentFrame ? "bg-cyan-300/10" : "border-t border-slate-700/80"}><td className="px-3 py-2.5 font-mono text-slate-100">{point.frame}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.time)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.x)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.y)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.vx)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.vy)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.speed)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.ax)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.ay)}</td><td className="px-3 py-2.5 font-mono text-slate-300">{formatSignificant(point.acceleration)}</td></tr>) : <tr><td colSpan={10} className="px-4 py-6 text-center text-sm text-slate-400">尚無追蹤資料。</td></tr>}</tbody>
                   </table>
                 </div>
