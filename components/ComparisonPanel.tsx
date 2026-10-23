@@ -42,9 +42,9 @@ const METRICS: Array<{ id: ComparisonMetric; label: string; axisLabel: string; u
   { id: "y", label: "y-t", axisLabel: "y (m)", unit: "m" },
   { id: "vx", label: "Vx-t", axisLabel: "Vx (m/s)", unit: "m/s" },
   { id: "vy", label: "Vy-t", axisLabel: "Vy (m/s)", unit: "m/s" },
-  { id: "speed", label: "speed-t", axisLabel: "Speed (m/s)", unit: "m/s" },
-  { id: "ax", label: "ax-t", axisLabel: "Ax (m/s²)", unit: "m/s²" },
-  { id: "ay", label: "ay-t", axisLabel: "Ay (m/s²)", unit: "m/s²" },
+  { id: "speed", label: "V-t", axisLabel: "V (m/s)", unit: "m/s" },
+  { id: "ax", label: "aₓ-t", axisLabel: "aₓ (m/s²)", unit: "m/s²" },
+  { id: "ay", label: "aᵧ-t", axisLabel: "aᵧ (m/s²)", unit: "m/s²" },
 ];
 
 const MODEL_OPTIONS: Array<{ value: FitModel; label: string }> = [
