@@ -58,6 +58,7 @@ const MODEL_OPTIONS: Array<{ value: FitModel; label: string }> = [
   { value: "inverse", label: "反比" },
   { value: "sine", label: "正弦" },
   { value: "cosine", label: "餘弦" },
+  { value: "damped_oscillation", label: "阻尼振盪" },
 ];
 
 const SERIES_COLORS = ["#22d3ee", "#c084fc", "#34d399", "#fbbf24", "#fb7185"];
