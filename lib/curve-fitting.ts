@@ -2,7 +2,7 @@ import { formatSignificant } from "@/lib/number-format";
 
 export type FitPoint = { t: number; value: number };
 
-export type FitModel = "none" | "linear" | "quadratic" | "exponential" | "logarithmic" | "power" | "inverse" | "sine" | "cosine";
+export type FitModel = "none" | "linear" | "quadratic" | "exponential" | "terminal_exponential" | "logarithmic" | "power" | "inverse" | "sine" | "cosine";
 type ActiveFitModel = Exclude<FitModel, "none">;
 
 export type FitSuccess = {
@@ -174,6 +174,100 @@ export function fitInverse(points: FitPoint[]): FitResult {
   return createFit("inverse", points, { A, B }, `y = ${formatCoefficient(A)} / x ${signedTerm(B, "")}`, (time) => A / time + B);
 }
 
+type TerminalExponentialCandidate = {
+  tau: number;
+  terminalVelocity: number;
+  initialVelocity: number;
+  residual: number;
+};
+
+function solveTerminalExponentialAtTau(points: FitPoint[], tau: number): TerminalExponentialCandidate | undefined {
+  if (!Number.isFinite(tau) || tau <= 0) return undefined;
+  const transformed = points.map((point) => ({ z: Math.exp(-point.t / tau), y: point.value }));
+  const count = transformed.length;
+  const sumZ = transformed.reduce((sum, point) => sum + point.z, 0);
+  const sumY = transformed.reduce((sum, point) => sum + point.y, 0);
+  const sumZZ = transformed.reduce((sum, point) => sum + point.z * point.z, 0);
+  const sumZY = transformed.reduce((sum, point) => sum + point.z * point.y, 0);
+  const denominator = count * sumZZ - sumZ * sumZ;
+  const scale = Math.max(Math.abs(count * sumZZ), Math.abs(sumZ * sumZ), 1);
+  if (Math.abs(denominator) <= scale * RELATIVE_TOLERANCE) return undefined;
+
+  const amplitude = (count * sumZY - sumZ * sumY) / denominator;
+  const terminalVelocity = (sumY - amplitude * sumZ) / count;
+  const initialVelocity = terminalVelocity + amplitude;
+  const residual = points.reduce((sum, point) => {
+    const predicted = terminalVelocity + (initialVelocity - terminalVelocity) * Math.exp(-point.t / tau);
+    return sum + (point.value - predicted) ** 2;
+  }, 0);
+
+  if (![terminalVelocity, initialVelocity, residual].every(Number.isFinite)) return undefined;
+  return { tau, terminalVelocity, initialVelocity, residual };
+}
+
+export function fitTerminalExponential(points: FitPoint[]): FitResult {
+  if (points.length < 3) return { ok: false, error: "終端速度型指數擬合至少需要 3 個有效點。" };
+  if (!hasFiniteValues(points)) return { ok: false, error: "擬合資料包含無效數值。" };
+
+  const sorted = [...points].sort((left, right) => left.t - right.t);
+  const span = sorted[sorted.length - 1].t - sorted[0].t;
+  const positiveDeltas = sorted.slice(1)
+    .map((point, index) => point.t - sorted[index].t)
+    .filter((delta) => delta > RELATIVE_TOLERANCE);
+  if (span <= RELATIVE_TOLERANCE || positiveDeltas.length === 0) {
+    return { ok: false, error: "時間範圍不足，無法可靠進行終端速度型指數擬合。" };
+  }
+
+  const minimumDelta = Math.min(...positiveDeltas);
+  const minimumTau = Math.max(minimumDelta / 20, span / 1000, 1e-6);
+  const maximumTau = Math.max(span * 100, minimumTau * 100);
+  const minimumLogTau = Math.log(minimumTau);
+  const maximumLogTau = Math.log(maximumTau);
+  const sampleCount = 280;
+
+  let best: TerminalExponentialCandidate | undefined;
+  let bestIndex = 0;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const logTau = minimumLogTau + ((maximumLogTau - minimumLogTau) * index) / (sampleCount - 1);
+    const candidate = solveTerminalExponentialAtTau(sorted, Math.exp(logTau));
+    if (candidate && (!best || candidate.residual < best.residual)) {
+      best = candidate;
+      bestIndex = index;
+    }
+  }
+  if (!best) return { ok: false, error: "資料無法可靠進行終端速度型指數擬合。" };
+
+  const logStep = (maximumLogTau - minimumLogTau) / (sampleCount - 1);
+  let low = Math.max(minimumLogTau, Math.log(best.tau) - (bestIndex === 0 ? 0 : logStep));
+  let high = Math.min(maximumLogTau, Math.log(best.tau) + (bestIndex === sampleCount - 1 ? 0 : logStep));
+  for (let iteration = 0; iteration < 64; iteration += 1) {
+    const leftLog = low + (high - low) / 3;
+    const rightLog = high - (high - low) / 3;
+    const left = solveTerminalExponentialAtTau(sorted, Math.exp(leftLog));
+    const right = solveTerminalExponentialAtTau(sorted, Math.exp(rightLog));
+    if (!left || !right) break;
+    if (left.residual <= right.residual) {
+      high = rightLog;
+      if (left.residual < best.residual) best = left;
+    } else {
+      low = leftLog;
+      if (right.residual < best.residual) best = right;
+    }
+  }
+
+  const VT = best.terminalVelocity;
+  const V0 = best.initialVelocity;
+  const tau = best.tau;
+  const evaluate = (time: number) => VT + (V0 - VT) * Math.exp(-time / tau);
+  return createFit(
+    "terminal_exponential",
+    sorted,
+    { VT, V0, tau },
+    `y = ${formatCoefficient(VT)} ${signedTerm(V0 - VT, `e^(−x / ${formatCoefficient(tau)})`)}`,
+    evaluate,
+  );
+}
+
 type HarmonicSolution = { omega: number; sine: number; cosine: number; offset: number; residual: number };
 
 function solveHarmonicAtOmega(points: FitPoint[], omega: number): HarmonicSolution | undefined {
@@ -246,6 +340,7 @@ export function fitData(model: FitModel, points: FitPoint[]): FitResult | null {
   if (model === "linear") return fitLinear(points);
   if (model === "quadratic") return fitQuadratic(points);
   if (model === "exponential") return fitExponential(points);
+  if (model === "terminal_exponential") return fitTerminalExponential(points);
   if (model === "logarithmic") return fitLogarithmic(points);
   if (model === "power") return fitPower(points);
   if (model === "inverse") return fitInverse(points);
