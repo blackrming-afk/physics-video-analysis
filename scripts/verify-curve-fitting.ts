@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fitCosine, fitData, fitExponential, fitInverse, fitLinear, fitLogarithmic, fitPower, fitQuadratic, fitSine, fitTerminalExponential } from "../lib/curve-fitting";
+import { fitCosine, fitDampedOscillation, fitData, fitExponential, fitInverse, fitLinear, fitLogarithmic, fitPower, fitQuadratic, fitSine, fitTerminalExponential } from "../lib/curve-fitting";
 import { formatSignificant } from "../lib/number-format";
 
 assert.equal(formatSignificant(-1.1483990764881795), "-1.148", "formatter should use four significant digits");
@@ -103,6 +103,19 @@ if (cosine.ok) {
   closeTo(cosine.coefficients.A, 2, "cosine A");
   assert.ok(Math.abs(cosine.coefficients.omega - 3) < 1e-6, `cosine omega: expected 3, received ${cosine.coefficients.omega}`);
   closeTo(cosine.coefficients.C, 1, "cosine C");
+}
+
+const damped = fitDampedOscillation(Array.from({ length: 121 }, (_, index) => {
+  const t = index * 0.05;
+  return { t, value: 2.5 * Math.exp(-0.4 * t) * Math.sin(4.2 * t + 0.35) + 0.6 };
+}));
+assert.ok(damped.ok, "damped oscillation fit should solve");
+if (damped.ok) {
+  assert.ok(Math.abs(damped.coefficients.A - 2.5) < 0.03, `damped A: expected 2.5, received ${damped.coefficients.A}`);
+  assert.ok(Math.abs(damped.coefficients.gamma - 0.4) < 0.02, `damped gamma: expected 0.4, received ${damped.coefficients.gamma}`);
+  assert.ok(Math.abs(damped.coefficients.omega - 4.2) < 0.02, `damped omega: expected 4.2, received ${damped.coefficients.omega}`);
+  assert.ok(Math.abs(damped.coefficients.C - 0.6) < 0.03, `damped C: expected 0.6, received ${damped.coefficients.C}`);
+  assert.ok((damped.rSquared ?? 0) > 0.999, "damped oscillation R² should be near 1");
 }
 
 const generic = fitData("linear", [{ t: 0, value: 1 }, { t: 1, value: 3 }]);
