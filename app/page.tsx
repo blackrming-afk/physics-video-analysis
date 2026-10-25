@@ -1386,14 +1386,17 @@ export default function Home() {
     : undefined;
   const fittingData = chartData.filter((point) => point.inFitRange);
   const fitInput = fittingData.map((point) => ({ t: point.time, value: point.value }));
-  const fitResult: FitResult | null = fitModel === "none" || !fitRangeIsValid
+  const fitModelApplicable = fitModel !== "terminal_exponential" || chartMetric === "vy";
+  const fitResult: FitResult | null = fitModel === "none" || !fitRangeIsValid || !fitModelApplicable
     ? null
     : fitData(fitModel, fitInput);
   const fitError = fitModel === "none"
     ? null
-    : !fitRangeIsValid
-      ? "請輸入有效範圍，且起始 frame 不可大於結束 frame。"
-      : fitResult && !fitResult.ok ? fitResult.error : null;
+    : !fitModelApplicable
+      ? "「終端速度型指數」只適用於 Vy-t 圖。"
+      : !fitRangeIsValid
+        ? "請輸入有效範圍，且起始 frame 不可大於結束 frame。"
+        : fitResult && !fitResult.ok ? fitResult.error : null;
   const fitFrameRange = fittingData.length > 0 ? `Frame ${fittingData[0].frame}–${fittingData[fittingData.length - 1].frame}` : "—";
   const fitCurvePoints = (() => {
     // Array.from's mapper receives only the item and index. Use an explicit
@@ -1412,7 +1415,7 @@ export default function Home() {
       return { time, fit: fitResult.evaluate(time) };
     });
   })();
-  const fitModelLabel: Record<FitModel, string> = { none: "不擬合", linear: "線性", quadratic: "二次", exponential: "指數", logarithmic: "對數", power: "冪次", inverse: "反比", sine: "正弦", cosine: "餘弦" };
+  const fitModelLabel: Record<FitModel, string> = { none: "不擬合", linear: "線性", quadratic: "二次", exponential: "指數", terminal_exponential: "終端速度型指數", logarithmic: "對數", power: "冪次", inverse: "反比", sine: "正弦", cosine: "餘弦" };
   const fitVariable = chartMetric === "xy" ? "y" : chartMetric;
   const fitEquation = fitResult && fitResult.ok
     ? fitResult.equation.replace(/^y/, fitVariable).replaceAll("x", chartMetric === "xy" ? "x" : "t")
@@ -2004,7 +2007,7 @@ export default function Home() {
                       <div className="flex items-center gap-2 text-sm font-semibold text-white"><Ruler size={17} className="text-fuchsia-300" />曲線擬合</div>
                       <p className="mt-1 text-xs leading-5 text-slate-400">本次擬合使用：<span className="font-semibold text-slate-200">{analysisMode === "smooth" ? "平滑資料（3 點移動平均）" : "原始資料"}</span></p>
                       {accelerationAverage !== undefined && <p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/5 px-2.5 py-2 text-xs text-amber-100">平均 {chartMetric === "ax" ? "aₓ" : "aᵧ"} = <span className="font-mono font-bold">{formatSignificant(accelerationAverage)} m/s²</span></p>}
-                      <label className="mt-3 block text-xs font-semibold text-slate-200">擬合模式<select aria-label="擬合模式" value={fitModel} onChange={(event) => { const nextModel = event.target.value as FitModel; setFitModel(nextModel); if (nextModel !== "none") { setIsFitPanelVisible(true); setIsFitPanelCollapsed(false); } }} className="mt-1.5 block w-full rounded-lg border border-fuchsia-300/40 bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white outline-none focus:border-fuchsia-200"><option value="none">不擬合</option><option value="linear">線性</option><option value="quadratic">二次</option><option value="exponential">指數</option><option value="logarithmic">對數</option><option value="power">冪次</option><option value="inverse">反比</option><option value="sine">正弦</option><option value="cosine">餘弦</option></select></label>
+                      <label className="mt-3 block text-xs font-semibold text-slate-200">擬合模式<select aria-label="擬合模式" value={fitModel} onChange={(event) => { const nextModel = event.target.value as FitModel; setFitModel(nextModel); if (nextModel !== "none") { setIsFitPanelVisible(true); setIsFitPanelCollapsed(false); } }} className="mt-1.5 block w-full rounded-lg border border-fuchsia-300/40 bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white outline-none focus:border-fuchsia-200"><option value="none">不擬合</option><option value="linear">線性</option><option value="quadratic">二次</option><option value="exponential">指數</option><option value="terminal_exponential" disabled={chartMetric !== "vy"}>終端速度型指數{chartMetric !== "vy" ? "（僅 Vy-t）" : ""}</option><option value="logarithmic">對數</option><option value="power">冪次</option><option value="inverse">反比</option><option value="sine">正弦</option><option value="cosine">餘弦</option></select></label>
                       {fitModel !== "none" && !isFitPanelVisible && <button type="button" onClick={() => { setIsFitPanelVisible(true); setIsFitPanelCollapsed(false); }} className="mt-2 text-xs font-semibold text-fuchsia-100 transition hover:text-white">顯示圖內結果框</button>}
                       <div className="mt-4 border-t border-slate-700 pt-4"><div className="mb-2 flex items-center justify-between"><span className="text-xs font-semibold text-slate-200">擬合資料範圍</span><button type="button" onClick={() => { setFitStartFrame(""); setFitEndFrame(""); }} className="text-xs font-semibold text-cyan-200 hover:text-cyan-100">全部資料</button></div><div className="grid grid-cols-2 gap-2"><label className="text-xs text-slate-400">起始 frame<input type="number" min="0" step="1" value={fitStartFrame} onChange={(event) => setFitStartFrame(event.target.value)} placeholder="全部" className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-2 font-mono text-sm text-white outline-none focus:border-cyan-300" /></label><label className="text-xs text-slate-400">結束 frame<input type="number" min="0" step="1" value={fitEndFrame} onChange={(event) => setFitEndFrame(event.target.value)} placeholder="全部" className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-900 px-2.5 py-2 font-mono text-sm text-white outline-none focus:border-cyan-300" /></label></div><p className="mt-2 text-xs text-slate-500">納入 {fittingData.length} 個有效點 · {fitFrameRange}</p></div>
                     </div>
