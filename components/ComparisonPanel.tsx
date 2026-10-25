@@ -52,6 +52,7 @@ const MODEL_OPTIONS: Array<{ value: FitModel; label: string }> = [
   { value: "linear", label: "線性" },
   { value: "quadratic", label: "二次" },
   { value: "exponential", label: "指數" },
+  { value: "terminal_exponential", label: "終端速度型指數" },
   { value: "logarithmic", label: "對數" },
   { value: "power", label: "冪次" },
   { value: "inverse", label: "反比" },
@@ -115,7 +116,11 @@ export function ComparisonPanel({
 
   const fitRows = useMemo(() => selected.map((dataset) => {
     const input = buildFitInput(dataset, metric);
-    const result = fitModel === "none" ? null : fitData(fitModel, input);
+    const result = fitModel === "none"
+      ? null
+      : fitModel === "terminal_exponential" && metric !== "vy"
+        ? { ok: false as const, error: "「終端速度型指數」只適用於 Vy-t 圖。" }
+        : fitData(fitModel, input);
     const curve = result && result.ok ? sampleFit(result, input) : [];
     return { dataset, input, result, curve };
   }), [selected, metric, fitModel]);
@@ -232,7 +237,7 @@ export function ComparisonPanel({
             onChange={(event) => setFitModel(event.target.value as FitModel)}
             className="mt-1 block min-h-11 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 text-sm text-white outline-none focus:border-cyan-300 lg:w-44"
           >
-            {MODEL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {MODEL_OPTIONS.map((option) => <option key={option.value} value={option.value} disabled={option.value === "terminal_exponential" && metric !== "vy"}>{option.label}{option.value === "terminal_exponential" && metric !== "vy" ? "（僅 Vy-t）" : ""}</option>)}
           </select>
         </label>
       </div>
