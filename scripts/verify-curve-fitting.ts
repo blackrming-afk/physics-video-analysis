@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fitCosine, fitData, fitExponential, fitInverse, fitLinear, fitLogarithmic, fitPower, fitQuadratic, fitSine } from "../lib/curve-fitting";
+import { fitCosine, fitData, fitExponential, fitInverse, fitLinear, fitLogarithmic, fitPower, fitQuadratic, fitSine, fitTerminalExponential } from "../lib/curve-fitting";
 import { formatSignificant } from "../lib/number-format";
 
 assert.equal(formatSignificant(-1.1483990764881795), "-1.148", "formatter should use four significant digits");
@@ -40,6 +40,18 @@ if (exponential.ok) {
   closeTo(exponential.coefficients.B, 0.5, "exponential B");
   closeTo(exponential.rSquared, 1, "exponential R²");
   closeTo(exponential.rmse, 0, "exponential RMSE");
+}
+
+const terminalExponential = fitTerminalExponential(Array.from({ length: 31 }, (_, index) => {
+  const t = index * 0.1;
+  return { t, value: -4 + (0 - (-4)) * Math.exp(-t / 0.5) };
+}));
+assert.ok(terminalExponential.ok, "terminal exponential fit should solve");
+if (terminalExponential.ok) {
+  assert.ok(Math.abs(terminalExponential.coefficients.VT - (-4)) < 1e-4, `terminal VT: expected -4, received ${terminalExponential.coefficients.VT}`);
+  assert.ok(Math.abs(terminalExponential.coefficients.V0 - 0) < 1e-4, `terminal V0: expected 0, received ${terminalExponential.coefficients.V0}`);
+  assert.ok(Math.abs(terminalExponential.coefficients.tau - 0.5) < 1e-4, `terminal tau: expected 0.5, received ${terminalExponential.coefficients.tau}`);
+  assert.ok((terminalExponential.rSquared ?? 0) > 0.999999, "terminal exponential R² should be near 1");
 }
 
 const logarithmic = fitLogarithmic([0.5, 1, 2, 3, 5, 8].map((t) => ({ t, value: 3 * Math.log(t) + 1 })));
