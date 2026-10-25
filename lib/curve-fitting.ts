@@ -2,7 +2,7 @@ import { formatSignificant } from "@/lib/number-format";
 
 export type FitPoint = { t: number; value: number };
 
-export type FitModel = "none" | "linear" | "quadratic" | "exponential" | "terminal_exponential" | "logarithmic" | "power" | "inverse" | "sine" | "cosine";
+export type FitModel = "none" | "linear" | "quadratic" | "exponential" | "terminal_exponential" | "logarithmic" | "power" | "inverse" | "sine" | "cosine" | "damped_oscillation";
 type ActiveFitModel = Exclude<FitModel, "none">;
 
 export type FitSuccess = {
@@ -332,6 +332,112 @@ function fitHarmonic(points: FitPoint[], model: "sine" | "cosine"): FitResult {
   return createFit(model, points, { A, omega, phi, C }, `y = ${formatCoefficient(A)}${name}(${formatCoefficient(omega)}x ${signedTerm(phi, "")}) ${signedTerm(C, "")}`, evaluate);
 }
 
+type DampedOscillationCandidate = {
+  gamma: number;
+  omega: number;
+  sine: number;
+  cosine: number;
+  offset: number;
+  residual: number;
+};
+
+function solveDampedAtGammaOmega(points: FitPoint[], gamma: number, omega: number): DampedOscillationCandidate | undefined {
+  if (!Number.isFinite(gamma) || gamma < 0 || !Number.isFinite(omega) || omega <= 0) return undefined;
+  const matrix = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const vector = [0, 0, 0];
+  for (const point of points) {
+    const envelope = Math.exp(-gamma * point.t);
+    const basis = [envelope * Math.sin(omega * point.t), envelope * Math.cos(omega * point.t), 1];
+    for (let row = 0; row < 3; row += 1) {
+      vector[row] += basis[row] * point.value;
+      for (let column = 0; column < 3; column += 1) matrix[row][column] += basis[row] * basis[column];
+    }
+  }
+  const solution = solveThreeByThree(matrix, vector);
+  if (!solution) return undefined;
+  const [sine, cosine, offset] = solution;
+  const residual = points.reduce((sum, point) => {
+    const envelope = Math.exp(-gamma * point.t);
+    const predicted = envelope * (sine * Math.sin(omega * point.t) + cosine * Math.cos(omega * point.t)) + offset;
+    return sum + (point.value - predicted) ** 2;
+  }, 0);
+  if (![sine, cosine, offset, residual].every(Number.isFinite)) return undefined;
+  return { gamma, omega, sine, cosine, offset, residual };
+}
+
+export function fitDampedOscillation(points: FitPoint[]): FitResult {
+  if (points.length < 7) return { ok: false, error: "阻尼振盪擬合至少需要 7 個有效點。" };
+  if (!hasFiniteValues(points)) return { ok: false, error: "擬合資料包含無效數值。" };
+
+  const sorted = [...points].sort((left, right) => left.t - right.t);
+  const span = sorted[sorted.length - 1].t - sorted[0].t;
+  const deltas = sorted.slice(1).map((point, index) => point.t - sorted[index].t).filter((delta) => delta > RELATIVE_TOLERANCE);
+  if (span <= RELATIVE_TOLERANCE || deltas.length === 0) return { ok: false, error: "時間範圍不足，無法可靠進行阻尼振盪擬合。" };
+
+  const minimumDelta = Math.min(...deltas);
+  const minOmega = Math.max((Math.PI * 2) / (span * 8), 1e-5);
+  const maxOmega = Math.max(minOmega * 1.1, Math.min((Math.PI / minimumDelta) * 0.95, ((Math.PI * 2) / span) * 12));
+  const maxGamma = Math.max(8 / span, 1e-4);
+  const gammaSamples = 40;
+  const omegaSamples = 180;
+
+  let best: DampedOscillationCandidate | undefined;
+  let bestGammaIndex = 0;
+  let bestOmegaIndex = 0;
+
+  for (let gi = 0; gi < gammaSamples; gi += 1) {
+    const gamma = (maxGamma * gi) / (gammaSamples - 1);
+    for (let oi = 0; oi < omegaSamples; oi += 1) {
+      const omega = minOmega + ((maxOmega - minOmega) * oi) / (omegaSamples - 1);
+      const candidate = solveDampedAtGammaOmega(sorted, gamma, omega);
+      if (candidate && (!best || candidate.residual < best.residual)) {
+        best = candidate;
+        bestGammaIndex = gi;
+        bestOmegaIndex = oi;
+      }
+    }
+  }
+  if (!best) return { ok: false, error: "資料無法可靠進行阻尼振盪擬合。" };
+
+  let gammaLow = Math.max(0, best.gamma - maxGamma / (gammaSamples - 1));
+  let gammaHigh = Math.min(maxGamma, best.gamma + maxGamma / (gammaSamples - 1));
+  let omegaLow = Math.max(minOmega, best.omega - (maxOmega - minOmega) / (omegaSamples - 1));
+  let omegaHigh = Math.min(maxOmega, best.omega + (maxOmega - minOmega) / (omegaSamples - 1));
+
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    const gammaCandidates = Array.from({ length: 7 }, (_, index) => gammaLow + ((gammaHigh - gammaLow) * index) / 6);
+    const omegaCandidates = Array.from({ length: 11 }, (_, index) => omegaLow + ((omegaHigh - omegaLow) * index) / 10);
+    let localBest = best;
+    for (const gamma of gammaCandidates) {
+      for (const omega of omegaCandidates) {
+        const candidate = solveDampedAtGammaOmega(sorted, gamma, omega);
+        if (candidate && (!localBest || candidate.residual < localBest.residual)) localBest = candidate;
+      }
+    }
+    best = localBest;
+    const gammaHalf = Math.max((gammaHigh - gammaLow) / 4, maxGamma / 1e6);
+    const omegaHalf = Math.max((omegaHigh - omegaLow) / 4, (maxOmega - minOmega) / 1e6);
+    gammaLow = Math.max(0, best.gamma - gammaHalf);
+    gammaHigh = Math.min(maxGamma, best.gamma + gammaHalf);
+    omegaLow = Math.max(minOmega, best.omega - omegaHalf);
+    omegaHigh = Math.min(maxOmega, best.omega + omegaHalf);
+  }
+
+  const A = Math.hypot(best.sine, best.cosine);
+  const phi = Math.atan2(best.cosine, best.sine);
+  const gamma = best.gamma;
+  const omega = best.omega;
+  const C = best.offset;
+  const evaluate = (time: number) => A * Math.exp(-gamma * time) * Math.sin(omega * time + phi) + C;
+  return createFit(
+    "damped_oscillation",
+    sorted,
+    { A, gamma, omega, phi, C },
+    `y = ${formatCoefficient(A)}e^(−${formatCoefficient(gamma)}x)sin(${formatCoefficient(omega)}x ${signedTerm(phi, "")}) ${signedTerm(C, "")}`,
+    evaluate,
+  );
+}
+
 export const fitSine = (points: FitPoint[]) => fitHarmonic(points, "sine");
 export const fitCosine = (points: FitPoint[]) => fitHarmonic(points, "cosine");
 
@@ -345,7 +451,8 @@ export function fitData(model: FitModel, points: FitPoint[]): FitResult | null {
   if (model === "power") return fitPower(points);
   if (model === "inverse") return fitInverse(points);
   if (model === "sine") return fitSine(points);
-  return fitCosine(points);
+  if (model === "cosine") return fitCosine(points);
+  return fitDampedOscillation(points);
 }
 
 export function evaluateFit(fit: FitSuccess, time: number) {
