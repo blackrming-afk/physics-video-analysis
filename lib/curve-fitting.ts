@@ -382,52 +382,47 @@ export function fitDampedOscillation(points: FitPoint[]): FitResult {
   const omegaSamples = 180;
 
   let best: DampedOscillationCandidate | undefined;
-  let bestGammaIndex = 0;
-  let bestOmegaIndex = 0;
 
   for (let gi = 0; gi < gammaSamples; gi += 1) {
     const gamma = (maxGamma * gi) / (gammaSamples - 1);
     for (let oi = 0; oi < omegaSamples; oi += 1) {
       const omega = minOmega + ((maxOmega - minOmega) * oi) / (omegaSamples - 1);
       const candidate = solveDampedAtGammaOmega(sorted, gamma, omega);
-      if (candidate && (!best || candidate.residual < best.residual)) {
-        best = candidate;
-        bestGammaIndex = gi;
-        bestOmegaIndex = oi;
-      }
+      if (candidate && (!best || candidate.residual < best.residual)) best = candidate;
     }
   }
   if (!best) return { ok: false, error: "資料無法可靠進行阻尼振盪擬合。" };
 
-  let gammaLow = Math.max(0, best.gamma - maxGamma / (gammaSamples - 1));
-  let gammaHigh = Math.min(maxGamma, best.gamma + maxGamma / (gammaSamples - 1));
-  let omegaLow = Math.max(minOmega, best.omega - (maxOmega - minOmega) / (omegaSamples - 1));
-  let omegaHigh = Math.min(maxOmega, best.omega + (maxOmega - minOmega) / (omegaSamples - 1));
+  let refinedBest: DampedOscillationCandidate = best;
+  let gammaLow = Math.max(0, refinedBest.gamma - maxGamma / (gammaSamples - 1));
+  let gammaHigh = Math.min(maxGamma, refinedBest.gamma + maxGamma / (gammaSamples - 1));
+  let omegaLow = Math.max(minOmega, refinedBest.omega - (maxOmega - minOmega) / (omegaSamples - 1));
+  let omegaHigh = Math.min(maxOmega, refinedBest.omega + (maxOmega - minOmega) / (omegaSamples - 1));
 
   for (let iteration = 0; iteration < 10; iteration += 1) {
     const gammaCandidates = Array.from({ length: 7 }, (_, index) => gammaLow + ((gammaHigh - gammaLow) * index) / 6);
     const omegaCandidates = Array.from({ length: 11 }, (_, index) => omegaLow + ((omegaHigh - omegaLow) * index) / 10);
-    let localBest = best;
+    let localBest: DampedOscillationCandidate = refinedBest;
     for (const gamma of gammaCandidates) {
       for (const omega of omegaCandidates) {
         const candidate = solveDampedAtGammaOmega(sorted, gamma, omega);
-        if (candidate && (!localBest || candidate.residual < localBest.residual)) localBest = candidate;
+        if (candidate && candidate.residual < localBest.residual) localBest = candidate;
       }
     }
-    best = localBest;
+    refinedBest = localBest;
     const gammaHalf = Math.max((gammaHigh - gammaLow) / 4, maxGamma / 1e6);
     const omegaHalf = Math.max((omegaHigh - omegaLow) / 4, (maxOmega - minOmega) / 1e6);
-    gammaLow = Math.max(0, best.gamma - gammaHalf);
-    gammaHigh = Math.min(maxGamma, best.gamma + gammaHalf);
-    omegaLow = Math.max(minOmega, best.omega - omegaHalf);
-    omegaHigh = Math.min(maxOmega, best.omega + omegaHalf);
+    gammaLow = Math.max(0, refinedBest.gamma - gammaHalf);
+    gammaHigh = Math.min(maxGamma, refinedBest.gamma + gammaHalf);
+    omegaLow = Math.max(minOmega, refinedBest.omega - omegaHalf);
+    omegaHigh = Math.min(maxOmega, refinedBest.omega + omegaHalf);
   }
 
-  const A = Math.hypot(best.sine, best.cosine);
-  const phi = Math.atan2(best.cosine, best.sine);
-  const gamma = best.gamma;
-  const omega = best.omega;
-  const C = best.offset;
+  const A = Math.hypot(refinedBest.sine, refinedBest.cosine);
+  const phi = Math.atan2(refinedBest.cosine, refinedBest.sine);
+  const gamma = refinedBest.gamma;
+  const omega = refinedBest.omega;
+  const C = refinedBest.offset;
   const evaluate = (time: number) => A * Math.exp(-gamma * time) * Math.sin(omega * time + phi) + C;
   return createFit(
     "damped_oscillation",
