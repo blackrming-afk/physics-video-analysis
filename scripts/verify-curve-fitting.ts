@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { fitCosine, fitDampedOscillation, fitData, fitExponential, fitInverse, fitLinear, fitLogarithmic, fitPower, fitQuadratic, fitSine, fitTerminalExponential } from "../lib/curve-fitting";
 import { formatSignificant } from "../lib/number-format";
 
-assert.equal(formatSignificant(-1.1483990764881795), "-1.148", "formatter should use four significant digits");
-assert.equal(formatSignificant(13.3249), "13.32", "formatter should trim long decimals");
+assert.equal(formatSignificant(-1.1483990764881795), "-1.15", "formatter should use three significant digits");
+assert.equal(formatSignificant(13.3249), "13.3", "formatter should trim long decimals");
 assert.equal(formatSignificant(undefined), "—", "formatter should provide a placeholder for missing values");
 
 const closeTo = (actual: number | undefined, expected: number, label: string) => {
@@ -22,7 +22,7 @@ if (linear.ok) {
 
 const formattedLinear = fitLinear([{ t: 0, value: 13.3249 }, { t: 1, value: -7.2051 }]);
 assert.ok(formattedLinear.ok, "formatted linear fit should solve");
-if (formattedLinear.ok) assert.equal(formattedLinear.equation, "y = -20.53x + 13.32", "fit equation should use four significant digits");
+if (formattedLinear.ok) assert.equal(formattedLinear.equation, "y = -20.5x + 13.3", "fit equation should use three significant digits");
 
 const quadratic = fitQuadratic([-1, 0, 1, 2, 3].map((t) => ({ t, value: -4.9 * t ** 2 + 3 * t + 2 })));
 assert.ok(quadratic.ok, "quadratic fit should solve");
