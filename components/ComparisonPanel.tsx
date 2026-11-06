@@ -255,7 +255,7 @@ export function ComparisonPanel({
                   <>
                     <XAxis type="number" dataKey="x" name="x" unit=" m" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: "x (m)", position: "insideBottom", offset: -10, fill: "#cbd5e1", fontSize: 12 }} />
                     <YAxis type="number" dataKey="y" name="y" unit=" m" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: "y (m)", angle: -90, position: "insideLeft", fill: "#cbd5e1", fontSize: 12 }} />
-                    <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 8, color: "#f8fafc" }} />
+                    <Tooltip formatter={(value) => formatSignificant(Number(value))} labelFormatter={(label) => formatSignificant(Number(label))} contentStyle={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 8, color: "#f8fafc" }} />
                     {selected.map((dataset, index) => (
                       <Scatter
                         key={dataset.id}
@@ -284,7 +284,7 @@ export function ComparisonPanel({
                   <>
                     <XAxis type="number" dataKey="time" name="t" unit=" s" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: "t (s)", position: "insideBottom", offset: -10, fill: "#cbd5e1", fontSize: 12 }} />
                     <YAxis type="number" dataKey="value" name={metricInfo.axisLabel} stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 12 }} label={{ value: metricInfo.axisLabel, angle: -90, position: "insideLeft", fill: "#cbd5e1", fontSize: 12 }} />
-                    <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 8, color: "#f8fafc" }} />
+                    <Tooltip formatter={(value) => formatSignificant(Number(value))} labelFormatter={(label) => formatSignificant(Number(label))} contentStyle={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 8, color: "#f8fafc" }} />
                     {selected.map((dataset, index) => {
                       const data = dataset.points
                         .map((point) => ({ time: point.time, value: metricValue(point, metric as Exclude<ComparisonMetric, "xy">) }))
